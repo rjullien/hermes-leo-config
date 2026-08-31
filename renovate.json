@@ -36,7 +36,7 @@
       "automergeType": "pr"
     }
   ],
-  "automerge": false,
+  "automerge": true,
   "automergeType": "pr",
   "platformAutomerge": true,
   "requiredStatusChecks": [],
