@@ -13,12 +13,13 @@
   ],
   "packageRules": [
     {
-      "description": "Image de base hermes-agent : calver vYYYY.M.D — délai 7j (sécurité), release notes détaillées",
+      "description": "Image de base hermes-agent : calver vYYYY.M.D — délai 7j (sécurité), AUTOMERGE (review humaine = renovate vps-infra)",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["nousresearch/hermes-agent"],
       "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:\\.(?<build>\\d+))?$",
       "minimumReleaseAge": "7 days",
-      "automerge": false
+      "automerge": true,
+      "automergeType": "pr"
     },
     {
       "description": "Binaires outils (gws, gh, kubectl) : releases officielles — délai 3j, AUTOMERGE",

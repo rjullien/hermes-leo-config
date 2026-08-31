@@ -48,8 +48,11 @@ venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et les ConfigMaps
 - Renovate tourne **self-hosted via GitHub Actions** (`renovate.yml`), PAS
   l'app publique. Secret `RENOVATE_TOKEN` requis (PAT, car `GITHUB_TOKEN` ne
   suffit pas → `Integration unauthorized`).
+- **Tout est en automerge** (binaires 3j, actions, hermes-agent 7j) : la
+  **review humaine se fait au niveau vps-infra** (renovate de Baptiste) quand
+  l'image est déployée — pas ici. Ne pas re-désactiver l'automerge.
 - Ne PAS remettre `RENOVATE_AUTOMERGE=false` dans le workflow : ça écrase
-  `renovate.json` (automerge binaires 3j / actions, hermes-agent manuel 7j).
+  `renovate.json`.
 - Dashboard des updates : issue #1 « Dependency Dashboard ».
 - Après un **changement de config Renovate** : relancer
   `gh workflow run renovate.yml --repo rjullien/hermes-leo-config`.

@@ -44,7 +44,12 @@ Renovate publique). Config : `renovate.json`.
 |---|---|---|
 | Binaires (gws, gh, kubectl) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
-| Image de base `hermes-agent` | 7 jours | ❌ review manuelle |
+| Image de base `hermes-agent` | 7 jours | ✅ automerge (review humaine = renovate vps-infra) |
+
+**Règle sécurité** : tout est automergé ici (outillage image) — la **vérification
+humaine se fait au niveau vps-infra** (le renovate de Baptiste) quand l'image est
+référencée dans le deployment. Le délai (3j binaires / 7j hermes-agent) laisse le
+temps de détecter une release compromise avant merge.
 
 **Pièges connus (vécus le 31/08/2026) :**
 
