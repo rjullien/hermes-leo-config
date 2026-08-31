@@ -1,0 +1,32 @@
+name: Renovate
+
+on:
+  schedule:
+    # Toutes les 6h + lundi 8h (réveil)
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: renovate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v46.2.5
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # dry-run: true   # décommenter pour un essai sans ouvrir de PR
+        env:
+          LOG_LEVEL: info
+          RENOVATE_AUTOMERGE: "false"
+          RENOVATE_PLATFORM: github
+          RENOVATE_ONBOARDING: "false"
+          RENOVATE_REQUIRE_CONFIG: "optional"
