@@ -30,7 +30,6 @@ jobs:
           # dry-run: true   # décommenter pour un essai sans ouvrir de PR
         env:
           LOG_LEVEL: info
-          RENOVATE_AUTOMERGE: "false"
           RENOVATE_PLATFORM: github
           RENOVATE_ONBOARDING: "false"
           RENOVATE_REQUIRE_CONFIG: "optional"
