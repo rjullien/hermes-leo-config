@@ -32,8 +32,8 @@
       "automergeType": "pr"
     },
     {
-      "description": "Binaires outils (gws, gh, kubectl, devin) : releases officielles — délai 3j, AUTOMERGE",
-      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "devin-cli"],
+      "description": "Binaires outils (gws, gh, kubectl, devin, go) : releases officielles — délai 3j, AUTOMERGE",
+      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "devin-cli", "golang"],
       "minimumReleaseAge": "3 days",
       "automerge": true,
       "automergeType": "pr"

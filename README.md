@@ -12,6 +12,7 @@ outils agents absents de la base.
 | **gh** (GitHub CLI) | 2.98.0 | Issues, PRs, releases |
 | **kubectl** | 1.31.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
 | **devin** (Devin CLI) | 3000.6.7 | Agent IA terminal — auth OAuth, credentials sur PVC (jamais dans l'image) |
+| **go** (toolchain) | 1.23.6 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -121,4 +122,6 @@ Changement d'image → PR vps-infra (pattern GitOps, ArgoCD auto-sync).
 kubectl exec -n openclaw deploy/hermes-leo -- gws --version  # 0.22.5
 kubectl exec -n openclaw deploy/hermes-leo -- gh --version   # 2.x
 kubectl exec -n openclaw deploy/hermes-leo -- kubectl version --client
+kubectl exec -n openclaw deploy/hermes-leo -- devin version    # 3000.x
+kubectl exec -n openclaw deploy/hermes-leo -- go version       # 1.23.x
 ```

@@ -6,6 +6,7 @@
 #   - gh       : GitHub CLI (issues, PRs, releases)
 #   - kubectl  : debug cluster (lecture pods/logs)
 #   - devin    : Devin CLI (agent IA terminal) — auth OAuth, credentials sur PVC (/opt/data), PAS dans l'image
+#   - go       : toolchain Go (compiler/tester les repos Go depuis le pod : opencode-usage-tracker, etc.)
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
 #
@@ -23,6 +24,8 @@ ARG GH_VERSION=2.98.0
 ARG KUBECTL_VERSION=1.37.0
 # renovate: datasource=custom depName=devin-cli
 ARG DEVIN_VERSION=3000.6.7
+# renovate: datasource=golang-version depName=golang
+ARG GO_VERSION=1.23.6
 
 USER root
 
@@ -52,6 +55,14 @@ RUN curl -fsSL https://static.devin.ai/cli/${DEVIN_VERSION}/devin-${DEVIN_VERSIO
     && cp /tmp/bin/devin /usr/local/bin/devin \
     && rm -rf /tmp/bin /tmp/share \
     && chmod +x /usr/local/bin/devin
+
+# --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
+# Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire
+# pour `go build/test` depuis le pod (binaire nu inutilisable sans GOROOT).
+RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
+    | tar xz -C /usr/local \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 # Les scripts/venvs/skills restent sur le PVC (/opt/data) et les ConfigMaps —
 # l'image ne porte que les binaires système/tools.
