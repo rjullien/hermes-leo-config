@@ -11,6 +11,7 @@ outils agents absents de la base.
 | **gws** (Google Workspace CLI) | 0.22.5 | Gmail, Tasks, Calendar, Drive — Gmail automatisé (remplace himalaya) |
 | **gh** (GitHub CLI) | 2.98.0 | Issues, PRs, releases |
 | **kubectl** | 1.31.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
+| **devin** (Devin CLI) | 3000.6.7 | Agent IA terminal — auth OAuth, credentials sur PVC (jamais dans l'image) |
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -67,6 +68,19 @@ temps de détecter une release compromise avant merge.
 4. **Binaire glibc** : l'image de base est debian (glibc) → télécharger
    `google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz` (PAS `-musl`, réservé
    aux images Alpine).
+5. **`platformAutomerge: true` échoue en silence sans branch protection** (checks
+   requis absents) → utiliser le merge direct (`automergeType: pr` sans
+   `platformAutomerge`), et surtout **`requiredStatusChecks: []` + `ignoreTests: true`** :
+   sans `ignoreTests`, les checks internes `renovate/stability-days` passent la
+   branche en « yellow » et Renovate refuse le merge indéfiniment
+   (`PR is not ready for merge (branch status is yellow)`).
+6. **`minimumReleaseAge`** : Renovate pose un check interne `renovate/stability-days`
+   et ne propose/touche pas avant l'âge requis — c'est volontaire (délai 3j/7j).
+   Un merge en conflit (405 `Pull Request has merge conflicts`) est retenté au
+   run suivant après rebase (`rebaseWhen=behind-base-branch`).
+7. **Devin CLI** : version via `customDatasources.devin-cli` qui lit le manifest
+   `https://static.devin.ai/cli/current/manifest.json` (champ `version`) — le tar
+   contient `bin/devin` + `share/`, on n'extrait que `bin/`.
 
 ## Secrets
 
@@ -77,6 +91,22 @@ env `prod`, chemin `/agents/hermes-leo`) — jamais en git.
 Config locale des credentials gws sur le pod :
 `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` + `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`
 (par compte : rene / leo séparés pour éviter la fuite de compte via le cache).
+
+### Devin CLI — auth (le token n'est PAS dans l'image)
+
+Le binaire est dans l'image, mais **le token Devin est un secret → Infisical**.
+
+Auth dans le pod (une fois) :
+
+```bash
+kubectl exec -n openclaw deploy/hermes-leo -- devin auth login
+# ou en headless (recommandé pod) :
+kubectl exec -n openclaw deploy/hermes-leo -- devin auth login --force-manual-token-flow
+```
+
+- Credentials persistés dans `~/.local/share/devin/credentials.toml` (PVC `/opt/data`, survit aux redéploiements)
+- Vérif : `kubectl exec -n openclaw deploy/hermes-leo -- devin auth status` → `Logged in`
+- La clé API Devin (si token) se met dans Infisical (`/agents/hermes-leo` → `DEVIN_TOKEN`) et s'injecte en env/volume du pod — jamais en build arg.
 
 ## Déploiement
 
