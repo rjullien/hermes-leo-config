@@ -4,7 +4,15 @@ on:
   schedule:
     # Toutes les 6h + lundi 8h (réveil)
     - cron: "0 */6 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: "Niveau de log Renovate (debug pour diagnostic)"
+        type: choice
+        default: info
+        options:
+          - info
+          - debug
 
 concurrency:
   group: renovate-${{ github.ref }}
@@ -29,7 +37,7 @@ jobs:
           token: ${{ secrets.RENOVATE_TOKEN }}
           # dry-run: true   # décommenter pour un essai sans ouvrir de PR
         env:
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
           RENOVATE_PLATFORM: github
           RENOVATE_ONBOARDING: "false"
           RENOVATE_REQUIRE_CONFIG: "optional"
