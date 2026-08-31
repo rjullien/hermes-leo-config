@@ -8,7 +8,7 @@
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
 
-FROM nousresearch/hermes-agent:v2026.8.16
+FROM nousresearch/hermes-agent:v2026.8.19
 
 # Pinned versions (Renovate auto-updates via regex manager, voir renovate.json)
 # renovate: datasource=github-releases depName=googleworkspace/cli
