@@ -38,7 +38,6 @@
   ],
   "automerge": true,
   "automergeType": "pr",
-  "platformAutomerge": true,
   "requiredStatusChecks": [],
   "prBodyColumns": ["Package", "Update", "Type", "Change", "Notes"]
 }
