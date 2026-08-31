@@ -39,5 +39,6 @@
   "automerge": true,
   "automergeType": "pr",
   "requiredStatusChecks": [],
+  "ignoreTests": true,
   "prBodyColumns": ["Package", "Update", "Type", "Change", "Notes"]
 }
