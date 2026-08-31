@@ -1,6 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:base"],
+  "customDatasources": {
+    "devin-cli": {
+      "description": "Devin CLI : version lue depuis le manifest officiel static.devin.ai",
+      "defaultRegistryUrlTemplate": "https://static.devin.ai/cli/current/manifest.json",
+      "format": "json",
+      "transform": "{{{version}}}"
+    }
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -22,8 +30,8 @@
       "automergeType": "pr"
     },
     {
-      "description": "Binaires outils (gws, gh, kubectl) : releases officielles — délai 3j, AUTOMERGE",
-      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes"],
+      "description": "Binaires outils (gws, gh, kubectl, devin) : releases officielles — délai 3j, AUTOMERGE",
+      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "devin-cli"],
       "minimumReleaseAge": "3 days",
       "automerge": true,
       "automergeType": "pr"
