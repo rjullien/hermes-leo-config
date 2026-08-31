@@ -30,3 +30,4 @@ jobs:
           RENOVATE_PLATFORM: github
           RENOVATE_ONBOARDING: "false"
           RENOVATE_REQUIRE_CONFIG: "optional"
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
