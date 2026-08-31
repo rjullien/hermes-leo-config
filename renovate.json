@@ -6,7 +6,9 @@
       "description": "Devin CLI : version lue depuis le manifest officiel static.devin.ai",
       "defaultRegistryUrlTemplate": "https://static.devin.ai/cli/current/manifest.json",
       "format": "json",
-      "transform": "{{{version}}}"
+      "transformTemplates": [
+        "{'releases': [{'version': version}]}"
+      ]
     }
   },
   "customManagers": [
