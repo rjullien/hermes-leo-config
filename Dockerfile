@@ -20,7 +20,7 @@ ARG GWS_VERSION=0.22.5
 # renovate: datasource=github-releases depName=cli/cli
 ARG GH_VERSION=2.98.0
 # renovate: datasource=github-tags depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=1.31.0
+ARG KUBECTL_VERSION=1.37.0
 # renovate: datasource=custom depName=devin-cli
 ARG DEVIN_VERSION=3000.6.7
 
