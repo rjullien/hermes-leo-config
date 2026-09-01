@@ -25,7 +25,7 @@ ARG KUBECTL_VERSION=1.37.0
 # renovate: datasource=custom depName=devin-cli
 ARG DEVIN_VERSION=3000.6.7
 # renovate: datasource=golang-version depName=golang
-ARG GO_VERSION=1.23.6
+ARG GO_VERSION=1.27.0
 
 USER root
 
