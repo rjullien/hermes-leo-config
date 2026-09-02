@@ -35,7 +35,15 @@ gh release create v2026.8.31 \
   --notes "Image custom hermes-leo : hermes-agent + gws/gh/kubectl"
 ```
 
-Le workflow `build.yml` (déclenché sur `release: published`) pousse les 4 tags.
+Le workflow `build.yml` pousse les tags **calver + `latest` uniquement depuis
+une release** (`release: published`). Un `workflow_dispatch` manuel ne produit
+que le tag `sha-<commit>` : il ne peut donc pas déplacer `latest` hors du flux de
+release (F-02). Déployer par **digest** dans vps-infra reste la référence
+immuable — `latest`/`vX.Y` sont mutables par construction.
+
+**Réglages serveur recommandés (hors code, F-02) :** activer la branch
+protection sur `main` (checks requis, cf. F-01) et l'immutabilité/rétention du
+package GHCR.
 
 ## Renovate (maintenance des versions)
 
