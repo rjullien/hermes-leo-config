@@ -1,0 +1,68 @@
+name: Auto Release
+# Crée une release calver quand un bump Renovate merge change le Dockerfile
+# (gws, gh, kubectl, devin, go, hermes-agent). Le build (build.yml) est
+# déclenché par la release -> pousse les tags vYYYY.M.D / latest / sha-<commit>.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Compute calver tag (vYYYY.M.D[.N])
+        id: tag
+        run: |
+          BASE="v$(date -u +%Y.%-m.%-d)"
+          TAG="$BASE"
+          N=1
+          while gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; do
+            TAG="${BASE}.$N"
+            N=$((N+1))
+          done
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if Dockerfile unchanged since last release
+        id: check
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')
+          if [ -z "$LAST_TAG" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Le tag calver est calculé pour aujourd'hui, mais si la release
+          # manuelle du jour existe déjà, on s'appuie sur le diff vs le précédent tag
+          if git diff --quiet "$LAST_TAG" -- Dockerfile; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.check.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')
+          DIFF_NOTE=""
+          if [ -n "$LAST_TAG" ]; then
+            DIFF_NOTE=$(git log --oneline --no-merges "$LAST_TAG"..HEAD -- Dockerfile | head -20 || true)
+          fi
+          NOTES="Release automatique (Renovate bump Dockerfile)
+          $DIFF_NOTE"
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "hermes-leo-config $TAG" \
+            --notes "$NOTES"
