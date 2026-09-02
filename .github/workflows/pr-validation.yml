@@ -1,0 +1,89 @@
+name: PR Validation (build + smoke + scan)
+
+# F-01 — Valide l'image sur chaque pull request SANS la pousser.
+# Objectif : aucune mise à jour de dépendance ne peut atteindre `main` sans
+# que le Dockerfile soit réellement construit, les 5 outils testés, et l'image
+# scannée. Ce workflow ne publie rien (push: false).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hermes-leo-custom:pr-validation
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Smoke test — les 5 outils répondent
+        run: |
+          set -euo pipefail
+          img=hermes-leo-custom:pr-validation
+          echo "::group::Versions des outils ajoutés"
+          docker run --rm --entrypoint gws     "$img" --version
+          docker run --rm --entrypoint gh      "$img" --version
+          docker run --rm --entrypoint kubectl "$img" version --client
+          docker run --rm --entrypoint devin   "$img" --version
+          docker run --rm --entrypoint go      "$img" version
+          echo "::endgroup::"
+
+      - name: Vérifier l'entrypoint hérité et l'architecture
+        run: |
+          set -euo pipefail
+          img=hermes-leo-custom:pr-validation
+          entrypoint=$(docker image inspect "$img" --format '{{json .Config.Entrypoint}}')
+          arch=$(docker image inspect "$img" --format '{{.Architecture}}')
+          echo "entrypoint=$entrypoint arch=$arch"
+          test "$entrypoint" = '["/opt/hermes/docker/entrypoint-dispatch.sh"]'
+          test "$arch" = "amd64"
+
+      # Rapport complet HIGH/CRITICAL — informatif, ne bloque jamais.
+      - name: Scan de vulnérabilités — rapport (informatif)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hermes-leo-custom:pr-validation
+          format: table
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
+
+      # Porte bloquante : échoue si une CRITICAL corrigible apparaît EN DEHORS
+      # de la baseline héritée de l'image de base (.trivyignore). Une régression
+      # introduite par ce dépôt fait donc rougir la PR ; le reliquat hérité est
+      # traité séparément (S-03) et documenté, daté, dans .trivyignore.
+      - name: Porte bloquante — nouvelles CRITICAL corrigibles
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hermes-leo-custom:pr-validation
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          vuln-type: os,library
+          severity: CRITICAL
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
