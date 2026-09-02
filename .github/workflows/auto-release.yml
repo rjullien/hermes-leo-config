@@ -33,35 +33,56 @@ jobs:
 
       - name: Skip if Dockerfile unchanged since last release
         id: check
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')
           if [ -z "$LAST_TAG" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Le tag calver est calculé pour aujourd'hui, mais si la release
-          # manuelle du jour existe déjà, on s'appuie sur le diff vs le précédent tag
           if git diff --quiet "$LAST_TAG" -- Dockerfile; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build release notes (outils changés, versions avant/après)
+        id: notes
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')
+          if [ -z "$LAST_TAG" ]; then
+            echo "NOTES=Première release automatique." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Extrait les ARG changés avec versions avant (old) -> après (new)
+          NOTES=""
+          while read -r ARG_NAME; do
+            [ -z "$ARG_NAME" ] && continue
+            OLD=$(git show "$LAST_TAG":Dockerfile 2>/dev/null | grep -E "^ARG $ARG_NAME=" | head -1 | cut -d= -f2-)
+            NEW=$(grep -E "^ARG $ARG_NAME=" Dockerfile | head -1 | cut -d= -f2-)
+            OLD=${OLD:-?}
+            NOTES+="- \`$ARG_NAME\` : \`$OLD\` -> \`$NEW\`"$'\n'
+          done < <(git diff "$LAST_TAG" -- Dockerfile | grep -E '^[+-]ARG [A-Z_]+=' | sed -E 's/^[+-]ARG ([A-Z_]+)=.*/\1/' | sort -u)
+          if [ -z "$NOTES" ]; then
+            NOTES="Mise à jour du Dockerfile (aucun ARG modifié)."
+          fi
+          {
+            echo "NOTES<<EOF"
+            echo "## Nouvelles versions"
+            echo "$NOTES"
+            echo ""
+            echo "Release automatique déclenchée par un merge de dépendance (Renovate) sur le Dockerfile."
+            echo "Les credentials restent sur le PVC /opt/data — aucun secret dans l'image."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create release
         if: steps.check.outputs.changed == 'true'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          NOTES: ${{ steps.notes.outputs.NOTES }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')
-          DIFF_NOTE=""
-          if [ -n "$LAST_TAG" ]; then
-            DIFF_NOTE=$(git log --oneline --no-merges "$LAST_TAG"..HEAD -- Dockerfile | head -20 || true)
-          fi
-          NOTES="Release automatique (Renovate bump Dockerfile)
-          $DIFF_NOTE"
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --title "hermes-leo-config $TAG" \
