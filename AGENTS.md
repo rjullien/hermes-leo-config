@@ -6,9 +6,9 @@ par les règles suivantes. À LIRE AVANT de modifier quoi que ce soit.
 ## 🎯 Le but du repo
 
 Une couche fine sur l'image officielle `nousresearch/hermes-agent` :
-**seulement des binaires système** (gws, gh, kubectl). Pas de scripts, pas de
-venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et les ConfigMaps
-(vps-infra), pas dans l'image.
+**seulement des binaires système** (gws, gh, kubectl, devin, go). Pas de
+scripts, pas de venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et
+les ConfigMaps (vps-infra), pas dans l'image.
 
 ## 🚫 Règles absolues
 

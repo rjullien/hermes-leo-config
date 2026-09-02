@@ -2,7 +2,7 @@ name: Renovate
 
 on:
   schedule:
-    # Toutes les 6h + lundi 8h (réveil)
+    # Toutes les 6h (00/06/12/18 UTC)
     - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
