@@ -16,7 +16,7 @@
       "customType": "regex",
       "fileMatch": ["^Dockerfile$"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG \\w+=(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG \\w+=(?<currentValue>[^\\s]+)\\nARG \\w+_SHA256=(?<currentDigest>[a-f0-9]{64})"
       ],
       "extractVersionTemplate": "^v?(?<version>.*)$"
     }
