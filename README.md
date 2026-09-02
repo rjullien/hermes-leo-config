@@ -48,10 +48,33 @@ Renovate publique). Config : `renovate.json`.
 | Actions GitHub du repo | — | ✅ automerge |
 | Image de base `hermes-agent` | 7 jours | ✅ automerge (review humaine = renovate vps-infra) |
 
-**Règle sécurité** : tout est automergé ici (outillage image) — la **vérification
-humaine se fait au niveau vps-infra** (le renovate de Baptiste) quand l'image est
-référencée dans le deployment. Le délai (3j binaires / 7j hermes-agent) laisse le
-temps de détecter une release compromise avant merge.
+**Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
+dépendance** (gws, gh, kubectl, devin, go, hermes-agent, Actions). Il n'y a plus
+d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
+donc pas fusionnée automatiquement. La **vérification humaine se fait au niveau
+vps-infra** (le renovate de Baptiste) quand l'image est référencée dans le
+deployment. Le délai (3j binaires / 7j hermes-agent) laisse le temps de détecter
+une release compromise avant merge.
+
+**L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
+`requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
+(F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
+5 outils testés, scan sans nouvelle CRITICAL corrigible).
+
+⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
+`strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
+« pending ». Les 3j/7j de `minimumReleaseAge` s'écoulent donc **avant** la
+création de la PR. Quand la PR apparaît, le délai de stabilité est déjà satisfait
+et il ne reste à attendre que `pr-validation` (~4 min).
+
+Pour que le check soit réellement bloquant, il doit être **required** dans la
+branch protection de `main` (réglage côté GitHub, pas dans ce repo).
+
+**Scope du `RENOVATE_TOKEN` (S-05)** : le PAT doit être limité à ce seul dépôt
+(`repo` sur `rjullien/hermes-leo-config` uniquement), avec expiration et rotation
+régulières. Il ne doit pas porter de droits d'administration ni d'accès à
+d'autres dépôts. Ce réglage se fait côté GitHub (paramètre du token), pas dans ce
+repo.
 
 **Pièges connus (vécus le 31/08/2026) :**
 
