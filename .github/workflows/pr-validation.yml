@@ -60,7 +60,7 @@ jobs:
 
       # Rapport complet HIGH/CRITICAL — informatif, ne bloque jamais.
       - name: Scan de vulnérabilités — rapport (informatif)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-leo-custom:pr-validation
           format: table
@@ -76,7 +76,7 @@ jobs:
       # introduite par ce dépôt fait donc rougir la PR ; le reliquat hérité est
       # traité séparément (S-03) et documenté, daté, dans .trivyignore.
       - name: Porte bloquante — nouvelles CRITICAL corrigibles
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-leo-custom:pr-validation
           format: table
