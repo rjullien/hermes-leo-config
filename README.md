@@ -143,6 +143,18 @@ kubectl exec -n openclaw deploy/hermes-leo -- devin auth login --force-manual-to
 - Vérif : `kubectl exec -n openclaw deploy/hermes-leo -- devin auth status` → `Logged in`
 - La clé API Devin (si token) se met dans Infisical (`/agents/hermes-leo` → `DEVIN_TOKEN`) et s'injecte en env/volume du pod — jamais en build arg.
 
+## Architecture
+
+⚠️ **Image `linux/amd64` uniquement (P-03).** Les binaires téléchargés dans le
+`Dockerfile` (gws, gh, kubectl, devin, go) ciblent explicitement `x86_64`/`amd64`,
+et `build.yml` ne construit que `platforms: linux/amd64`. L'image de base
+`hermes-agent` publie aussi une variante `arm64`, mais cette image custom ne la
+couvre pas. Le pod `hermes-leo` doit donc tourner sur un nœud amd64.
+
+Pour ajouter arm64 : vérifier la disponibilité de chaque binaire en arm64,
+paramétrer les URLs via `TARGETARCH`, ajouter `linux/arm64` à `platforms`, puis
+valider les 5 outils sur arm64 (réel ou émulé) via le workflow PR (F-01).
+
 ## Déploiement
 
 Le pod `hermes-leo` (namespace `openclaw`) référence l'image via
