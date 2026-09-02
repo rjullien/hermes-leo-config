@@ -46,6 +46,7 @@
       "automergeType": "pr"
     }
   ],
+  "pinDigests": true,
   "automerge": true,
   "automergeType": "pr",
   "requiredStatusChecks": [],
