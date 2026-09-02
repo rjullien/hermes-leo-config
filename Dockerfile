@@ -18,31 +18,20 @@
 # couple tag+digest (pinDigests).
 FROM nousresearch/hermes-agent:v2026.8.16@sha256:f8f548d87d16634d1ad9e3777280f3f577ba2358703f04e18e74007ffd3621bf
 
-# Pinned versions (Renovate auto-updates via regex manager, voir renovate.json)
-# Chaque outil a un SHA-256 attendu (S-01) : le téléchargement est vérifié AVANT
-# extraction/installation. Modifier une version implique de mettre à jour le
-# SHA256 correspondant (Renovate le fait via l'option `matchStringsStrategy`).
-# renovate: datasource=github-releases depName=googleworkspace/cli
-ARG GWS_VERSION=0.22.5
-ARG GWS_SHA256=de78ecdbd2f1a84cca0063a7ecbc440240fc14b6ebccbb17f4646b792a8c5c1f
-# renovate: datasource=github-releases depName=cli/cli
-ARG GH_VERSION=2.99.0
-ARG GH_SHA256=ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832
-# renovate: datasource=github-tags depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=1.37.0
-ARG KUBECTL_SHA256=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
-# renovate: datasource=custom depName=devin-cli
-ARG DEVIN_VERSION=3000.6.7
-ARG DEVIN_SHA256=f88edacea692553910d72f275515bd0b52b5d271d55250981b0c41011142d27b
-# renovate: datasource=golang-version depName=golang
-ARG GO_VERSION=1.27.0
-ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
-
+# Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
+# SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
+# (gws → gh → kubectl → devin → go). Ainsi, changer la version d'un outil
+# n'invalide QUE sa couche et les suivantes, pas les précédentes.
+# Chaque outil a un SHA-256 attendu (S-01) : téléchargement vérifié AVANT
+# extraction. Renovate maintient version + digest (voir renovate.json).
 USER root
 
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
 # Remplace himalaya pour tout le Gmail automatisé (API native, OAuth standard)
 # Télécharge dans un fichier temporaire, vérifie le SHA-256, PUIS extrait.
+# renovate: datasource=github-releases depName=googleworkspace/cli
+ARG GWS_VERSION=0.22.5
+ARG GWS_SHA256=de78ecdbd2f1a84cca0063a7ecbc440240fc14b6ebccbb17f4646b792a8c5c1f
 RUN curl -fsSL -o /tmp/gws.tar.gz https://github.com/googleworkspace/cli/releases/download/v${GWS_VERSION}/google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz \
     && echo "${GWS_SHA256}  /tmp/gws.tar.gz" | sha256sum -c - \
     && tar xz -C /usr/local/bin --strip-components=0 -f /tmp/gws.tar.gz ./gws \
@@ -50,6 +39,9 @@ RUN curl -fsSL -o /tmp/gws.tar.gz https://github.com/googleworkspace/cli/release
     && chmod +x /usr/local/bin/gws
 
 # --- gh : GitHub CLI ---
+# renovate: datasource=github-releases depName=cli/cli
+ARG GH_VERSION=2.99.0
+ARG GH_SHA256=ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832
 RUN curl -fsSL -o /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
     && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar xz -C /tmp -f /tmp/gh.tar.gz \
@@ -58,6 +50,9 @@ RUN curl -fsSL -o /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v$
     && chmod +x /usr/local/bin/gh
 
 # --- kubectl : debug cluster ---
+# renovate: datasource=github-tags depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=1.37.0
+ARG KUBECTL_SHA256=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
 RUN curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
     && echo "${KUBECTL_SHA256}  /tmp/kubectl" | sha256sum -c - \
     && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl \
@@ -67,6 +62,9 @@ RUN curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin
 # Binaire seul (le tar contient bin/devin + share/docs, on n'extrait que bin/)
 # Auth: `devin auth login` (device flow) ou `--force-manual-token-flow` (pod headless)
 # Credentials → ~/.local/share/devin/credentials.toml (PVC /opt/data, persistant)
+# renovate: datasource=custom depName=devin-cli
+ARG DEVIN_VERSION=3000.6.7
+ARG DEVIN_SHA256=f88edacea692553910d72f275515bd0b52b5d271d55250981b0c41011142d27b
 RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}/devin-${DEVIN_VERSION}-x86_64-unknown-linux.tar.gz \
     && echo "${DEVIN_SHA256}  /tmp/devin.tar.gz" | sha256sum -c - \
     && tar xz -C /tmp -f /tmp/devin.tar.gz \
@@ -77,6 +75,10 @@ RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}
 # --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
 # Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire
 # pour `go build/test` depuis le pod (binaire nu inutilisable sans GOROOT).
+# Placé en dernier (couche la plus lourde) pour préserver le cache des autres.
+# renovate: datasource=golang-version depName=golang
+ARG GO_VERSION=1.27.0
+ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
 RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
     && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
     && tar xz -C /usr/local -f /tmp/go.tar.gz \
