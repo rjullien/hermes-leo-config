@@ -37,10 +37,14 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # F-02 — `latest` n'est publié QUE depuis une release (event=release).
+          # Un `workflow_dispatch` manuel ne produit que le tag sha-<commit>, il
+          # ne peut donc plus déplacer silencieusement `latest`. Les tags calver
+          # (vX.Y.Z, vX.Y) ne sont émis que par une release, comme documenté.
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern=v{{major}}.{{minor}}
-            type=raw,value=latest
+            type=semver,pattern=v{{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern=v{{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
             type=sha,prefix=sha-
 
       - name: Build and push Docker image
