@@ -9,10 +9,13 @@ outils agents absents de la base.
 | Outil | Version | Usage |
 |---|---|---|
 | **gws** (Google Workspace CLI) | 0.22.5 | Gmail, Tasks, Calendar, Drive — Gmail automatisé (remplace himalaya) |
-| **gh** (GitHub CLI) | 2.98.0 | Issues, PRs, releases |
-| **kubectl** | 1.31.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
+| **gh** (GitHub CLI) | 2.99.0 | Issues, PRs, releases |
+| **kubectl** | 1.37.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
 | **devin** (Devin CLI) | 3000.6.7 | Agent IA terminal — auth OAuth, credentials sur PVC (jamais dans l'image) |
-| **go** (toolchain) | 1.23.6 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
+| **go** (toolchain) | 1.27.0 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
+
+> Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
+> de vérité). En cas de doute, `Dockerfile` fait foi.
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -154,5 +157,5 @@ kubectl exec -n openclaw deploy/hermes-leo -- gws --version  # 0.22.5
 kubectl exec -n openclaw deploy/hermes-leo -- gh --version   # 2.x
 kubectl exec -n openclaw deploy/hermes-leo -- kubectl version --client
 kubectl exec -n openclaw deploy/hermes-leo -- devin version    # 3000.x
-kubectl exec -n openclaw deploy/hermes-leo -- go version       # 1.23.x
+kubectl exec -n openclaw deploy/hermes-leo -- go version       # 1.27.x
 ```
