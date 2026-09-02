@@ -1,0 +1,14 @@
+# Baseline Trivy — vulnérabilités CRITICAL corrigibles héritées de l'image de
+# base nousresearch/hermes-agent, que ce dépôt ne peut pas patcher directement.
+# Elles sont suivies dans le rapport d'audit (docs/audit-2026-09-01.md, S-03) et
+# se résolvent en bumpant l'image de base (Renovate). NE PAS ajouter ici une
+# vulnérabilité introduite par la couche de ce dépôt : la porte bloquante doit
+# rester capable d'échouer sur une régression.
+#
+# Chaque exception doit être datée et réévaluée à chaque bump de la base.
+
+# Constaté le 2026-09-01, base v2026.8.16 :
+# docker-cli (Debian) — à lever au prochain bump de hermes-agent
+CVE-2026-33747
+# package Node tar — à lever au prochain bump de hermes-agent
+CVE-2026-59873
