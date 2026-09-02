@@ -16,6 +16,10 @@
 # Base épinglée par digest (S-02) : reconstruire ce commit utilise toujours la
 # même image, même si le tag v2026.8.16 est déplacé. Renovate maintient le
 # couple tag+digest (pinDigests).
+#
+# ⚠️ ARCHITECTURE (P-03) : image linux/amd64 UNIQUEMENT. Les URLs ci-dessous
+# ciblent x86_64/amd64 et build.yml ne construit que linux/amd64. Pour arm64,
+# paramétrer via TARGETARCH et valider les 5 binaires (voir README §Architecture).
 FROM nousresearch/hermes-agent:v2026.8.16@sha256:f8f548d87d16634d1ad9e3777280f3f577ba2358703f04e18e74007ffd3621bf
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
