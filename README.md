@@ -78,14 +78,17 @@ une release compromise avant merge.
 création de la PR. Quand la PR apparaît, le délai de stabilité est déjà satisfait
 et il ne reste à attendre que `pr-validation` (~4 min).
 
-Pour que le check soit réellement bloquant, il doit être **required** dans la
-branch protection de `main` (réglage côté GitHub, pas dans ce repo).
+Le check `build-and-verify` est **required** dans la branch protection de `main`,
+avec « branche à jour avant merge » activé. Renovate rebase automatiquement dans
+ce cas (`rebaseWhen: auto` retient `behind-base-branch` dès qu'un automerge est
+configuré), l'automerge n'est donc pas bloqué par cette exigence.
 
-**Scope du `RENOVATE_TOKEN` (S-05)** : le PAT doit être limité à ce seul dépôt
-(`repo` sur `rjullien/hermes-leo-config` uniquement), avec expiration et rotation
-régulières. Il ne doit pas porter de droits d'administration ni d'accès à
-d'autres dépôts. Ce réglage se fait côté GitHub (paramètre du token), pas dans ce
-repo.
+**Convention pour le `RENOVATE_TOKEN`** : token dédié à ce seul dépôt, avec
+expiration et rotation, sans droits d'administration. Il lui faut le scope
+`workflow` (ou « Workflows: RW » en fine-grained) : sans lui, GitHub refuse les
+mises à jour des fichiers de `.github/workflows/`, et Renovate ne peut pas
+proposer les bumps d'Actions. Le bloc `permissions:` du workflow ne s'applique
+qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
 
 **Pièges connus (vécus le 31/08/2026) :**
 
