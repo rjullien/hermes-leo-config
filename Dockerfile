@@ -13,7 +13,10 @@
 # ⚠️ SÉCURITÉ : repo PUBLIC + image ghcr.io publique — AUCUN secret/token dans ce Dockerfile.
 # Les credentials (gws OAuth, devin auth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
 
-FROM nousresearch/hermes-agent:v2026.8.16
+# Base épinglée par digest (S-02) : reconstruire ce commit utilise toujours la
+# même image, même si le tag v2026.8.16 est déplacé. Renovate maintient le
+# couple tag+digest (pinDigests).
+FROM nousresearch/hermes-agent:v2026.8.16@sha256:f8f548d87d16634d1ad9e3777280f3f577ba2358703f04e18e74007ffd3621bf
 
 # Pinned versions (Renovate auto-updates via regex manager, voir renovate.json)
 # Chaque outil a un SHA-256 attendu (S-01) : le téléchargement est vérifié AVANT
