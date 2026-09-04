@@ -81,7 +81,7 @@ RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}
 # pour `go build/test` depuis le pod (binaire nu inutilisable sans GOROOT).
 # Placé en dernier (couche la plus lourde) pour préserver le cache des autres.
 # renovate: datasource=golang-version depName=golang
-ARG GO_VERSION=1.27.0
+ARG GO_VERSION=1.27.1
 ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
 RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
     && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
