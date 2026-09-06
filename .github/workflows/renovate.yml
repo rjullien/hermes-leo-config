@@ -42,3 +42,13 @@ jobs:
           RENOVATE_ONBOARDING: "false"
           RENOVATE_REQUIRE_CONFIG: "optional"
           RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # allowedCommands est une config ADMIN (self-hosted) : elle ne peut PAS
+          # être définie dans renovate.json, sinon un dépôt pourrait s'autoriser
+          # n'importe quelle commande. C'est donc CETTE ligne qui autorise les
+          # `postUpgradeTasks` de renovate.json à s'exécuter ; la retirer les rend
+          # silencieusement inopérants et rebranche l'échec de build sur
+          # `sha256sum -c` (cf. PR #26 golang bloquée).
+          # Le regex est ANCRÉ (^...$) et ne matche que l'appel au script de
+          # synchronisation : ce workflow porte un PAT, un motif permissif (ou un
+          # `.*`) y serait un trou d'exécution de commande arbitraire.
+          RENOVATE_ALLOWED_COMMANDS: '["^node scripts/sync-download-checksums\\.mjs --write --only=[A-Za-z0-9._/-]+$"]'

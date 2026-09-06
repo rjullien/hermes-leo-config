@@ -23,11 +23,24 @@ les ConfigMaps (vps-infra), pas dans l'image.
    skills + crons avant). Exemple : himalaya a été retiré car gws le remplace
    pour Gmail — mais vérifier les usages avant chaque retrait.
 5. **Ne pas épingler une version** sans le commentaire Renovate qui précède
-   l'ARG :
+   l'ARG, ni sans son `ARG <OUTIL>_SHA256` juste après :
    ```dockerfile
    # renovate: datasource=github-releases depName=googleworkspace/cli
    ARG GWS_VERSION=0.22.5
+   ARG GWS_SHA256=de78ecdbd2f1a84cca0063a7ecbc440240fc14b6ebccbb17f4646b792a8c5c1f
    ```
+   Les trois lignes forment un bloc indissociable : le `RUN` qui suit vérifie
+   l'archive avec `sha256sum -c` AVANT de l'extraire (S-01).
+   **Le `ARG <OUTIL>_SHA256` est maintenu par machine — ne JAMAIS l'éditer à la
+   main** (ni le copier depuis une page web). Pour le rafraîchir :
+   ```bash
+   node scripts/sync-download-checksums.mjs --check   # CI : sort 1 si un SHA est périmé
+   node scripts/sync-download-checksums.mjs --write   # réécrit les lignes _SHA256 périmées
+   node scripts/sync-download-checksums.mjs --write --only=golang   # un seul outil
+   ```
+   Le script est **sans dépendance** (Node + stdlib uniquement, pas de
+   `package.json`, pas de `curl`/`jq`) parce qu'il doit tourner dans le
+   conteneur `ghcr.io/renovatebot/renovate`. Ne pas y ajouter de dépendance.
 
 ## 🔄 Workflow de mise à jour d'un outil
 
@@ -58,6 +71,56 @@ les ConfigMaps (vps-infra), pas dans l'image.
   `gh workflow run renovate.yml --repo rjullien/hermes-leo-config`.
 - Les branches/PRs Renovate apparaissent en « Errored » si une branche a déjà
   été patchée par un run antérieur → supprimer la branche et relancer.
+
+### Synchronisation version ↔ SHA-256 (ne pas casser)
+
+Renovate ne connaît que le `ARG <OUTIL>_VERSION`. Deux réglages, et deux
+seulement, empêchent le `ARG <OUTIL>_SHA256` de rester périmé :
+
+1. **`postUpgradeTasks` dans `renovate.json`** (règle des 5 binaires) :
+   `node scripts/sync-download-checksums.mjs --write --only={{{depName}}}`,
+   `fileFilters: ["Dockerfile"]`, `executionMode: "update"`. Le SHA corrigé
+   fait donc partie du **commit Renovate** et reste relisible dans le diff.
+2. **`RENOVATE_ALLOWED_COMMANDS` dans `renovate.yml`** : `allowedCommands` est
+   une config **admin** (self-hosted), impossible à définir depuis
+   `renovate.json`. C'est elle qui *autorise* la commande ci-dessus.
+
+**Retirer l'un des deux ne produit aucune erreur visible** : Renovate bumpe la
+version seule, `sha256sum -c` rejette la nouvelle archive et la PR échoue au
+build (symptôme vécu : PR #26 golang 1.27.1 « blocked »). Le job `checksums` de
+`pr-validation.yml` est le filet de sécurité : il nomme l'outil et les deux
+valeurs en quelques secondes au lieu d'un échec opaque après ~300 Mo.
+
+⚠️ **Ne pas remettre le groupe de capture `currentDigest`** dans
+`customManagers` : aucune des datasources utilisées (`golang-version`,
+`github-releases`, `github-tags`, `custom`) ne sait résoudre le SHA-256 d'une
+archive comme un digest. Le résultat observé était : branche
+`renovate/kubernetes-kubernetes-digest` en erreur en tentant d'écrire un SHA de
+**commit git** de kubernetes/kubernetes dans `KUBECTL_SHA256`, « Could not
+determine new digest for update » pour `googleworkspace/cli` et `cli/cli`, et
+« Failed to look up custom package devin-cli: no-result » — soit gws, gh et
+devin **gelés sans aucune mise à jour**.
+
+Sources amont du checksum, par outil (utilisées par le script) :
+
+| Outil | Source du SHA-256 publié |
+|---|---|
+| gws | `…/releases/download/v<V>/google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz.sha256` (format `<hex>␠␠<fichier>`) |
+| gh | `…/releases/download/v<V>/gh_<V>_checksums.txt` → ligne dont le fichier est exactement `gh_<V>_linux_amd64.tar.gz` |
+| kubectl | `https://dl.k8s.io/release/v<V>/bin/linux/amd64/kubectl.sha256` (hex nu ; c'est le hash du **binaire**, pas d'une archive) |
+| devin | `https://static.devin.ai/cli/<V>/manifest.json` → `.platforms["x86_64-unknown-linux"].sha256` (manifest **par version**, pas `/current/`) |
+| go | `https://go.dev/dl/?mode=json&include=all` → entrée `.version == "go<V>"`, fichier `os=linux` `arch=amd64` `kind=archive`, champ `.sha256` |
+
+⚠️ **go.dev ne publie PAS de `.sha256` par archive.**
+`https://go.dev/dl/go<V>.linux-amd64.tar.gz.sha256` renvoie une **page HTML**,
+pas un hash (vérifié). Toute implémentation qui suppose cette URL écrit du HTML
+dans `GO_SHA256`. Utiliser l'endpoint `?mode=json`.
+
+Le script ne fait jamais confiance à une seule source : il lit le checksum
+publié en amont, **retélécharge l'artefact et recalcule le SHA-256 en flux**, et
+refuse d'écrire quoi que ce soit si les deux ne concordent pas. C'est ce qui
+préserve S-01 (la valeur commitée reste une attente vérifiée indépendamment, pas
+une valeur reprise de confiance).
 
 ## 🧪 Vérification après build
 

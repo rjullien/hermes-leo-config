@@ -17,6 +17,37 @@ outils agents absents de la base.
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
 > de vérité). En cas de doute, `Dockerfile` fait foi.
 
+## Vérification des téléchargements (SHA-256)
+
+Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
+est accompagné d'un `ARG *_SHA256` **commité dans le repo**, et le `RUN`
+correspondant vérifie l'archive avec `sha256sum -c` **avant** de l'extraire
+(S-01). Une archive substituée en amont fait donc échouer le build, elle
+n'atterrit jamais dans l'image.
+
+Ces checksums sont maintenus par machine, jamais à la main :
+[`scripts/sync-download-checksums.mjs`](scripts/sync-download-checksums.mjs)
+lit le checksum **publié par l'éditeur** (release GitHub, `dl.k8s.io`,
+`manifest.json` Devin, index JSON de go.dev), **retélécharge l'artefact et
+recalcule son SHA-256 en flux**, et refuse d'écrire une valeur si les deux ne
+concordent pas. La valeur commitée reste ainsi une attente vérifiée de façon
+indépendante, et non une valeur reprise de confiance au moment du build.
+
+```bash
+node scripts/sync-download-checksums.mjs --check   # vérifie, sort 1 si un SHA est périmé
+node scripts/sync-download-checksums.mjs --write   # resynchronise les lignes ARG *_SHA256
+```
+
+Le script est **sans aucune dépendance** (Node + bibliothèque standard, ni
+`package.json`, ni `curl`, ni `jq`) car il doit aussi tourner dans le conteneur
+Renovate. Deux garde-fous l'exécutent automatiquement :
+
+- **Renovate** (`postUpgradeTasks`) le lance sur sa propre branche quand il
+  bumpe une version, si bien que version et checksum changent **dans le même
+  commit** et restent relisibles dans le diff de la PR ;
+- **la CI** (job `checksums` de `pr-validation.yml`) le rejoue en mode `--check`
+  sur chaque PR, en quelques secondes et **avant** le build de l'image.
+
 ## Versioning — calver `vYYYY.M.D`
 
 Le repo est versionné **calver** comme hermes-agent (ex: `v2026.8.31`).
@@ -78,6 +109,12 @@ une release compromise avant merge.
 création de la PR. Quand la PR apparaît, le délai de stabilité est déjà satisfait
 et il ne reste à attendre que `pr-validation` (~4 min).
 
+`pr-validation.yml` enchaîne deux jobs : `checksums` (quelques secondes, vérifie
+les 5 SHA-256, cf. §Vérification des téléchargements) puis `build-and-verify`
+qui en dépend (`needs:`). Un checksum périmé fait donc rougir la PR
+immédiatement, avec le nom de l'outil et les deux valeurs, au lieu d'un
+`sha256sum -c` opaque au bout du téléchargement de ~300 Mo de Go.
+
 Le check `build-and-verify` est **required** dans la branch protection de `main`,
 avec « branche à jour avant merge » activé. Renovate rebase automatiquement dans
 ce cas (`rebaseWhen: auto` retient `behind-base-branch` dès qu'un automerge est
@@ -102,7 +139,14 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    # renovate: datasource=github-releases depName=googleworkspace/cli
    ARG GWS_VERSION=0.22.5
    ```
-   → Renovate propose les bumps automatiquement.
+   → Renovate propose les bumps automatiquement. Il ne capture **que** la
+   version : le `ARG *_SHA256` est resynchronisé par `postUpgradeTasks`, qui
+   exige `RENOVATE_ALLOWED_COMMANDS` dans `renovate.yml` (config admin,
+   impossible depuis `renovate.json`). Tenter de capturer le checksum comme un
+   `currentDigest` ne fonctionne pas : aucune des datasources utilisées ne sait
+   résoudre le SHA-256 d'une archive comme un digest, et le résultat observé
+   était un SHA de commit git écrit dans `KUBECTL_SHA256` plus trois outils
+   (gws, gh, devin) gelés sans aucune mise à jour.
 4. **Binaire glibc** : l'image de base est debian (glibc) → télécharger
    `google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz` (PAS `-musl`, réservé
    aux images Alpine).
