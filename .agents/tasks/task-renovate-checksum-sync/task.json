@@ -1,0 +1,7 @@
+{
+  "task_id": "task-renovate-checksum-sync",
+  "task_description": "Fix the structural coupling failure between the pinned version ARGs and the SHA-256 ARGs in the hermes-leo-config Dockerfile, using the user's chosen option 2: a Renovate-side mechanism that bumps both together by fetching the upstream checksum, instead of patching the SHA by hand (option 1) or resolving it at build time (option 3, which would gut audit finding S-01). Deliver a committed, dependency-free sync script cross-checking the upstream published checksum against a freshly computed hash, wire it into Renovate via postUpgradeTasks plus the admin-level allowedCommands, add a fast CI checksum gate as a backstop, and remove the currentDigest capture group in renovate.json that is currently breaking four separate Renovate updates (PR #26 golang blocked, kubectl digest branch errored with a bogus git SHA, and gws/gh/devin silently frozen with digest-lookup failures). Work stays on a local branch; the orchestrator publishes it.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
