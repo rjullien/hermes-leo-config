@@ -17,6 +17,72 @@ outils agents absents de la base.
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
 > de vérité). En cas de doute, `Dockerfile` fait foi.
 
+## Vérification des téléchargements (SHA-256)
+
+Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
+est accompagné d'un `ARG *_SHA256` **commité dans le repo**, et le `RUN`
+correspondant vérifie l'archive avec `sha256sum -c` **avant** de l'extraire
+(S-01). Une archive substituée en amont fait donc échouer le build, elle
+n'atterrit jamais dans l'image.
+
+Ces checksums sont maintenus par machine, jamais à la main :
+[`scripts/sync-download-checksums.mjs`](scripts/sync-download-checksums.mjs)
+lit le checksum **publié par l'éditeur** (release GitHub, `dl.k8s.io`,
+`manifest.json` Devin, index JSON de go.dev), **retélécharge l'artefact et
+recalcule son SHA-256 en flux**, et refuse d'écrire une valeur si les deux ne
+concordent pas.
+
+**Ce que cette double lecture couvre, et ce qu'elle ne couvre pas.** Pour un
+outil donné, le checksum publié et l'artefact viennent du **même éditeur, sur le
+même domaine et la même chaîne TLS**. Le croisement détecte un téléchargement
+tronqué, un cache ou miroir divergent, une publication incohérente entre le
+fichier de checksums et l'archive ; il ne détecte **pas** un éditeur qui
+publierait un artefact malveillant avec le checksum correspondant. Ce n'est donc
+pas une attestation indépendante de la *source*, mais du *transport*. Ce qui
+reste acquis : la valeur est figée dans le dépôt, relisible dans le diff de la
+PR, et rejouée à chaque build contre le CDN — une archive substituée après le
+bump fait échouer le build. Le délai avant merge automatique reste
+`minimumReleaseAge` (3 jours, cf. §Renovate).
+
+```bash
+node scripts/sync-download-checksums.mjs --check   # vérifie, sort 1 si un SHA est périmé
+node scripts/sync-download-checksums.mjs --write   # resynchronise les lignes ARG *_SHA256
+node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 5 artefacts
+```
+
+Le script est **sans aucune dépendance** (Node + bibliothèque standard, ni
+`package.json`, ni `curl`, ni `jq`) car il doit aussi tourner dans le conteneur
+Renovate. Deux garde-fous l'exécutent automatiquement :
+
+- **Renovate** (`postUpgradeTasks`) le lance sur sa propre branche quand il
+  bumpe une version, si bien que version et checksum changent **dans le même
+  commit** et restent relisibles dans le diff de la PR ;
+- **la CI** (`pr-validation.yml`) le rejoue en mode `--check` sur chaque PR, dans
+  le job requis `build-and-verify` et **avant** l'étape de build de l'image (c'est
+  une étape de ce job, pas un job séparé : un job séparé relié par `needs:`
+  rendrait le check requis *skipped*, donc satisfait, en cas d'échec).
+
+En mode `--check`, le script ne relit que les checksums publiés (5 requêtes, pas
+de retéléchargement des artefacts) ; il ne rehashe un artefact que pour arbitrer
+un écart, ou sur demande explicite avec `--verify-artifacts`. **Ce que la CI fait
+rougir** : un checksum commité différent du checksum publié ; un checksum publié
+impossible à établir (version absente en amont, asset renommé ou retiré, 404) ;
+l'indisponibilité de **tous** les amonts à la fois, cas où la garde n'a rien
+vérifié du tout ; et, en mode `--verify-artifacts`, le moindre artefact non
+rehashé. Une indisponibilité **partielle** (réseau, 5xx, throttling sur un amont)
+est retentée puis signalée en **avertissement** sans bloquer : elle ne doit pas
+rendre `main` non mergeable alors que l'image reste construisible.
+
+Nuance sur le raccourci « pas de retéléchargement » : le `sha256sum -c` du
+`Dockerfile` rehashe bien l'archive réellement téléchargée, mais le build de PR
+utilise `cache-from: type=gha`, donc la couche `RUN curl … && sha256sum -c` n'est
+rejouée que lorsque son `ARG` version ou SHA change. Sur une PR qui ne touche pas
+ces lignes, aucun octet d'artefact n'est rehashé. C'est pourquoi la CI passe
+`--verify-artifacts` sur `push: main` : les 5 artefacts (~140 Mo) y sont
+retéléchargés et rehashés, une fois par merge plutôt qu'une fois par PR. Ce mode
+échoue s'il n'a pas pu rehasher les 5, pour qu'un run post-merge vert veuille dire
+« tout a été revérifié » et rien d'autre.
+
 ## Versioning — calver `vYYYY.M.D`
 
 Le repo est versionné **calver** comme hermes-agent (ex: `v2026.8.31`).
@@ -78,6 +144,16 @@ une release compromise avant merge.
 création de la PR. Quand la PR apparaît, le délai de stabilité est déjà satisfait
 et il ne reste à attendre que `pr-validation` (~4 min).
 
+`pr-validation.yml` vérifie les 5 SHA-256 (cf. §Vérification des téléchargements)
+dans le job `build-and-verify`, **avant l'étape de build** (c'est la 3ᵉ étape, après
+le checkout et `setup-node`) : un checksum périmé fait rougir la PR en moins d'une
+minute, avec le nom de l'outil et les deux valeurs, au lieu d'un `sha256sum -c`
+opaque au bout du téléchargement de 70 Mo de Go. Cette garde est volontairement une étape et non un job relié par
+`needs:` : en job séparé, son échec rendait `build-and-verify` *skipped*, et un
+check requis skipped est compté comme satisfait par la branch protection — le
+merge humain redevenait possible sur une PR dont l'image n'a jamais été
+construite.
+
 Le check `build-and-verify` est **required** dans la branch protection de `main`,
 avec « branche à jour avant merge » activé. Renovate rebase automatiquement dans
 ce cas (`rebaseWhen: auto` retient `behind-base-branch` dès qu'un automerge est
@@ -102,7 +178,18 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    # renovate: datasource=github-releases depName=googleworkspace/cli
    ARG GWS_VERSION=0.22.5
    ```
-   → Renovate propose les bumps automatiquement.
+   → Renovate propose les bumps automatiquement. Il ne capture **que** la
+   version : le `ARG *_SHA256` est resynchronisé par `postUpgradeTasks`, qui
+   exige `RENOVATE_ALLOWED_COMMANDS` dans `renovate.yml` (config admin,
+   impossible depuis `renovate.json`). Tenter de capturer le checksum comme un
+   `currentDigest` ne fonctionne pas : aucune des datasources utilisées ne sait
+   résoudre le SHA-256 d'une archive comme un digest, et le résultat observé
+   était un SHA de commit git écrit dans `KUBECTL_SHA256` plus deux outils
+   (gws, gh) gelés sans aucune mise à jour.
+   Une datasource **custom** se référence par `custom.<nom>` :
+   `datasource=custom.devin-cli`, jamais `datasource=custom` seul, sinon Renovate
+   sort « Failed to look up custom package devin-cli: no-result » et devin reste
+   gelé (c'était le cas, indépendamment du `currentDigest`).
 4. **Binaire glibc** : l'image de base est debian (glibc) → télécharger
    `google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz` (PAS `-musl`, réservé
    aux images Alpine).
@@ -117,7 +204,8 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    Un merge en conflit (405 `Pull Request has merge conflicts`) est retenté au
    run suivant après rebase (`rebaseWhen=behind-base-branch`).
 7. **Devin CLI** : version via `customDatasources.devin-cli` qui lit le manifest
-   `https://static.devin.ai/cli/current/manifest.json` (champ `version`) — le tar
+   `https://static.devin.ai/cli/current/manifest.json` (champ `version`),
+   référencé côté Dockerfile par `datasource=custom.devin-cli` — le tar
    contient `bin/devin` + `share/`, on n'extrait que `bin/`.
 
 ## Secrets
