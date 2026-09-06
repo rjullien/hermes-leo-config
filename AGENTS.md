@@ -40,6 +40,10 @@ les ConfigMaps (vps-infra), pas dans l'image.
    ARG GWS_VERSION=0.22.5
    ARG GWS_SHA256=de78ecdbd2f1a84cca0063a7ecbc440240fc14b6ebccbb17f4646b792a8c5c1f
    ```
+   Pour une datasource **custom** définie dans `customDatasources`, la valeur est
+   `custom.<nom>` (ex. `datasource=custom.devin-cli`) et **pas** `custom` : voir
+   l'avertissement dédié dans la section Renovate ci-dessous, un `custom` nu gèle
+   silencieusement l'outil.
    Les trois lignes forment un bloc indissociable : le `RUN` qui suit vérifie
    l'archive avec `sha256sum -c` AVANT de l'extraire (S-01).
    **Le `ARG <OUTIL>_SHA256` est maintenu par machine — ne JAMAIS l'éditer à la
@@ -124,12 +128,27 @@ des deux a raison et n'a **pas** de droit de veto sur le code de sortie ; (b) un
 checksum publié impossible à établir alors que l'amont a répondu (version absente
 de l'index go.dev, nom de fichier absent de `gh_<V>_checksums.txt`, asset 404 ou
 renommé) — « je n'ai pas pu établir la valeur publiée » est un échec de
-vérification, pas une panne. Ne produit qu'un **avertissement** (exit 0) la seule
-INDISPONIBILITÉ : erreur réseau/DNS/TLS, 5xx, throttling, flux coupé, budget
-épuisé, après 3 tentatives (timeout 60 s, 5 min pour un artefact). Sans ça, une
-panne amont rendrait `main` non mergeable alors que l'image reste construisible. Un
-budget global de 10 min borne le run, et `build-and-verify` porte un
-`timeout-minutes: 30`.
+vérification, pas une panne ; (c) **tous** les amonts sélectionnés indisponibles —
+la garde n'a alors rien vérifié, et un vert serait indiscernable d'un vrai
+contrôle ; (d) avec `--verify-artifacts`, **moins d'artefacts rehashés que
+d'outils sélectionnés** (voir plus bas : c'est la seule rejouée régulière de S-01,
+elle tourne sur `push: main` et ne doit pas se dégrader en avertissement dans un
+run que personne ne relit). Ne produit qu'un **avertissement** (exit 0) la seule
+INDISPONIBILITÉ PARTIELLE : erreur réseau/DNS/TLS, 5xx, throttling, flux coupé,
+budget épuisé, après 3 tentatives (timeout 60 s, 5 min pour un artefact). Sans ça,
+une panne amont rendrait `main` non mergeable alors que l'image reste
+construisible.
+
+Le budget global borne le run : **10 min en `--check`, 20 min avec
+`--verify-artifacts`**, et il est **réparti en tranches égales entre les outils
+restants** — sinon un seul amont dégradé le consommait en entier et les suivants
+sortaient « budget épuisé » sans avoir émis une requête. Corollaire : le pire cas
+annoncé par outil (3 tentatives × 5 min sur un artefact) dépasse sa tranche, donc
+les tentatives supplémentaires ne servent qu'aux échecs **rapides** (flux coupé
+d'emblée) ; un artefact simplement trop lent épuise sa tranche, ce qui est un
+échec sous `--verify-artifacts`. `build-and-verify` porte un
+`timeout-minutes: 45` (20 min de garde au pire + un build à froid + 2 scans
+Trivy).
 
 Le **403 ne peut pas être classé sur le seul code** : GitHub le renvoie sur
 throttling secondaire (à retenter), mais `static.devin.ai` le renvoie pour un objet
@@ -138,7 +157,12 @@ throttling secondaire (à retenter), mais `static.devin.ai` le renvoie pour un o
 indice de throttling (`retry-after`, `x-ratelimit-remaining: 0`, corps mentionnant
 un rate limit) ; sinon il le traite comme un 404. Ne pas « simplifier » en
 remettant 403 dans la liste des statuts retentables : une version devin inexistante
-redeviendrait une garde verte.
+redeviendrait une garde verte. Symétriquement, **ce test d'indice de throttling ne
+s'applique qu'au 403** : l'étendre à tous les statuts ferait d'un 404 portant un
+`retry-after` une indisponibilité, donc une garde verte sur un asset renommé. Et
+comme un 403 nu peut aussi venir d'un **intermédiaire réseau** (proxy de sortie,
+WAF, CDN refusant le user-agent) et non de l'amont, le message d'échec cite cette
+piste : la rejouer depuis un autre réseau tranche.
 
 ⚠️ **Le `sha256sum -c` du build n'est pas un filet permanent.** Le build de PR
 utilise `cache-from: type=gha` : la couche `RUN curl … && sha256sum -c` n'est
@@ -147,7 +171,10 @@ lignes, aucun octet d'artefact n'est rehashé. D'où `--verify-artifacts`, pass�
 `pr-validation.yml` sur `push: main` uniquement : il rehashe les 5 artefacts
 (~140 Mo) une fois par merge. Ne pas l'ajouter au chemin PR (coût réseau par PR)
 ni le retirer de `push: main` (c'est la seule rejouée régulière de la
-contre-vérification S-01).
+contre-vérification S-01). Ce mode **n'a de valeur que complet** : il sort 1 dès
+qu'un artefact n'a pas été rehashé (amont injoignable, flux coupé, tranche de
+budget épuisée), au lieu de laisser un `::warning::` dans un run post-merge et un
+vert qui se lit comme un contrôle intégral.
 
 En mode `--write` (Renovate), au contraire, **tout échec est fatal** et rien n'est
 écrit : Renovate produit alors une PR portant un `artifactErrors` plutôt qu'un
@@ -162,13 +189,31 @@ version dont les binaires existent, et `--check` reste vert.
 
 ⚠️ **Ne pas remettre le groupe de capture `currentDigest`** dans
 `customManagers` : aucune des datasources utilisées (`golang-version`,
-`github-releases`, `github-tags`, `custom`) ne sait résoudre le SHA-256 d'une
-archive comme un digest. Le résultat observé était : branche
+`github-releases`, `github-tags`, `custom.devin-cli`) ne sait résoudre le SHA-256
+d'une archive comme un digest. Le résultat observé était : branche
 `renovate/kubernetes-kubernetes-digest` en erreur en tentant d'écrire un SHA de
-**commit git** de kubernetes/kubernetes dans `KUBECTL_SHA256`, « Could not
-determine new digest for update » pour `googleworkspace/cli` et `cli/cli`, et
-« Failed to look up custom package devin-cli: no-result » — soit gws, gh et
-devin **gelés sans aucune mise à jour**.
+**commit git** de kubernetes/kubernetes dans `KUBECTL_SHA256`, et « Could not
+determine new digest for update » pour `googleworkspace/cli` et `cli/cli` — soit
+gws et gh **gelés sans aucune mise à jour**.
+
+⚠️ **Un `customDatasources` nommé se référence par `custom.<nom>`, jamais
+`custom` tout court.** Le gel de devin avait cette cause-là, et non le groupe
+`currentDigest` : avec `# renovate: datasource=custom depName=devin-cli`,
+Renovate loggue « No custom datasource config provided while devin-cli has been
+requested » puis « Failed to look up custom package devin-cli: no-result », et
+devin ne reçoit **aucun** bump (donc `postUpgradeTasks --only=devin-cli` ne
+tourne jamais). Vérifié en dry-run Renovate 44.61.6 (`RENOVATE_PLATFORM=local`) :
+avec `datasource=custom.devin-cli`, le lookup rend `3000.6.7 → 3000.6.14`.
+`depName` ne change pas, donc `matchPackageNames`, `--only={{{depName}}}` et
+l'ancre de `RENOVATE_ALLOWED_COMMANDS` ne bougent pas. Contrôle rapide après
+toute retouche d'une ligne `# renovate:` :
+
+```bash
+docker run --rm -v "$PWD":/tmp/renovate/repo -e RENOVATE_PLATFORM=local \
+  -e RENOVATE_DRY_RUN=lookup -e LOG_LEVEL=debug -w /tmp/renovate/repo \
+  ghcr.io/renovatebot/renovate:44.61.6 renovate 2>&1 | grep 'flattened updates'
+# doit lister les 5 outils concernés, pas 4
+```
 
 Sources amont du checksum, par outil (utilisées par le script) :
 

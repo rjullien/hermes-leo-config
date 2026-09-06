@@ -21,11 +21,21 @@ jobs:
     # Borne dure du job (le défaut GitHub est de 6 h). La garde checksums qui
     # précède le build fait du réseau avec retries (3 tentatives, timeout 60 s
     # par requête) et rehashe les 5 artefacts sur `push: main` ; le script porte
-    # son propre budget global de 10 min, ce cap est le filet au-dessus.
-    timeout-minutes: 30
+    # son propre budget global (10 min en `--check`, 20 min avec
+    # `--verify-artifacts`), ce cap est le filet au-dessus : 20 min de garde au
+    # pire + un build à froid + les 2 scans Trivy doivent tenir dedans.
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Node est requis par l'étape suivante (la garde checksums) ; l'image
+      # `ubuntu-latest` en fournit déjà un, on l'épingle pour ne pas dépendre de sa
+      # rotation. Le script n'a AUCUNE dépendance npm : pas d'install ici.
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
 
       # Filet de sécurité derrière les `postUpgradeTasks` de renovate.json : si
       # la resynchronisation `ARG <OUTIL>_SHA256` ne s'est pas exécutée
@@ -53,15 +63,12 @@ jobs:
       # pour rejouer la contre-vérification S-01 que le cache de couches ne
       # rejoue pas. Un run par merge, pas un par PR.
       #
-      # Un écart commité ≠ publié, ou un checksum publié impossible à établir
-      # (404, asset renommé), fait échouer cette étape. Seule une indisponibilité
-      # amont (réseau, 5xx, throttling) produit un avertissement — voir l'en-tête
-      # du script.
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: "22"
-
+      # Font échouer cette étape : un écart commité ≠ publié ; un checksum publié
+      # impossible à établir (404, asset renommé) ; l'indisponibilité de TOUS les
+      # amonts (la garde n'a alors rien vérifié) ; et, avec --verify-artifacts, le
+      # moindre artefact non rehashé. Seule une indisponibilité PARTIELLE (réseau,
+      # 5xx, throttling sur un amont) produit un avertissement — voir l'en-tête du
+      # script.
       - name: Vérifier les SHA-256 des 5 téléchargements
         env:
           EVENT_NAME: ${{ github.event_name }}

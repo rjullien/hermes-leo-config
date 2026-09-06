@@ -65,11 +65,13 @@ Renovate. Deux garde-fous l'exécutent automatiquement :
 En mode `--check`, le script ne relit que les checksums publiés (5 requêtes, pas
 de retéléchargement des artefacts) ; il ne rehashe un artefact que pour arbitrer
 un écart, ou sur demande explicite avec `--verify-artifacts`. **Ce que la CI fait
-rougir** : un checksum commité différent du checksum publié, et un checksum publié
-impossible à établir (version absente en amont, asset renommé ou retiré, 404). Une
-**indisponibilité** amont (réseau, 5xx, throttling) est retentée puis signalée en
-**avertissement** sans bloquer : elle ne doit pas rendre `main` non mergeable
-alors que l'image reste construisible.
+rougir** : un checksum commité différent du checksum publié ; un checksum publié
+impossible à établir (version absente en amont, asset renommé ou retiré, 404) ;
+l'indisponibilité de **tous** les amonts à la fois, cas où la garde n'a rien
+vérifié du tout ; et, en mode `--verify-artifacts`, le moindre artefact non
+rehashé. Une indisponibilité **partielle** (réseau, 5xx, throttling sur un amont)
+est retentée puis signalée en **avertissement** sans bloquer : elle ne doit pas
+rendre `main` non mergeable alors que l'image reste construisible.
 
 Nuance sur le raccourci « pas de retéléchargement » : le `sha256sum -c` du
 `Dockerfile` rehashe bien l'archive réellement téléchargée, mais le build de PR
@@ -77,7 +79,9 @@ utilise `cache-from: type=gha`, donc la couche `RUN curl … && sha256sum -c` n'
 rejouée que lorsque son `ARG` version ou SHA change. Sur une PR qui ne touche pas
 ces lignes, aucun octet d'artefact n'est rehashé. C'est pourquoi la CI passe
 `--verify-artifacts` sur `push: main` : les 5 artefacts (~140 Mo) y sont
-retéléchargés et rehashés, une fois par merge plutôt qu'une fois par PR.
+retéléchargés et rehashés, une fois par merge plutôt qu'une fois par PR. Ce mode
+échoue s'il n'a pas pu rehasher les 5, pour qu'un run post-merge vert veuille dire
+« tout a été revérifié » et rien d'autre.
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -180,8 +184,12 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    impossible depuis `renovate.json`). Tenter de capturer le checksum comme un
    `currentDigest` ne fonctionne pas : aucune des datasources utilisées ne sait
    résoudre le SHA-256 d'une archive comme un digest, et le résultat observé
-   était un SHA de commit git écrit dans `KUBECTL_SHA256` plus trois outils
-   (gws, gh, devin) gelés sans aucune mise à jour.
+   était un SHA de commit git écrit dans `KUBECTL_SHA256` plus deux outils
+   (gws, gh) gelés sans aucune mise à jour.
+   Une datasource **custom** se référence par `custom.<nom>` :
+   `datasource=custom.devin-cli`, jamais `datasource=custom` seul, sinon Renovate
+   sort « Failed to look up custom package devin-cli: no-result » et devin reste
+   gelé (c'était le cas, indépendamment du `currentDigest`).
 4. **Binaire glibc** : l'image de base est debian (glibc) → télécharger
    `google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz` (PAS `-musl`, réservé
    aux images Alpine).
@@ -196,7 +204,8 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    Un merge en conflit (405 `Pull Request has merge conflicts`) est retenté au
    run suivant après rebase (`rebaseWhen=behind-base-branch`).
 7. **Devin CLI** : version via `customDatasources.devin-cli` qui lit le manifest
-   `https://static.devin.ai/cli/current/manifest.json` (champ `version`) — le tar
+   `https://static.devin.ai/cli/current/manifest.json` (champ `version`),
+   référencé côté Dockerfile par `datasource=custom.devin-cli` — le tar
    contient `bin/devin` + `share/`, on n'extrait que `bin/`.
 
 ## Secrets

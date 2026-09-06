@@ -3,7 +3,7 @@
   "extends": ["config:recommended"],
   "customDatasources": {
     "devin-cli": {
-      "description": "Devin CLI : version lue depuis le manifest officiel static.devin.ai",
+      "description": "Devin CLI : version lue depuis le manifest officiel static.devin.ai. Le Dockerfile DOIT le référencer par `datasource=custom.devin-cli` : un customDatasource nommé se résout en `custom.<nom>`, et `datasource=custom` tout court donne « No custom datasource config provided while devin-cli has been requested » puis « Failed to look up custom package devin-cli: no-result » (vérifié en dry-run Renovate 44.61.6).",
       "defaultRegistryUrlTemplate": "https://static.devin.ai/cli/current/manifest.json",
       "format": "json",
       "transformTemplates": [
@@ -13,7 +13,7 @@
   },
   "customManagers": [
     {
-      "description": "Lit les 5 couples `# renovate:` + `ARG <OUTIL>_VERSION=` du Dockerfile. NE CAPTURE PAS le SHA-256 : aucune des datasources utilisées (golang-version, github-releases, github-tags, custom) ne sait résoudre le SHA-256 d'une archive comme un digest. Le capturer cassait 4 updates à la fois (branche renovate/kubernetes-kubernetes-digest en erreur en essayant d'écrire un SHA de commit git kubernetes/kubernetes dans KUBECTL_SHA256, « Could not determine new digest for update » pour googleworkspace/cli et cli/cli, « Failed to look up custom package devin-cli: no-result »). Le SHA-256 est désormais maintenu par postUpgradeTasks (scripts/sync-download-checksums.mjs).",
+      "description": "Lit les 5 couples `# renovate:` + `ARG <OUTIL>_VERSION=` du Dockerfile. NE CAPTURE PAS le SHA-256 : aucune des datasources utilisées (golang-version, github-releases, github-tags, custom.devin-cli) ne sait résoudre le SHA-256 d'une archive comme un digest. Le capturer cassait 3 updates à la fois (branche renovate/kubernetes-kubernetes-digest en erreur en essayant d'écrire un SHA de commit git kubernetes/kubernetes dans KUBECTL_SHA256, « Could not determine new digest for update » pour googleworkspace/cli et cli/cli). Le SHA-256 est désormais maintenu par postUpgradeTasks (scripts/sync-download-checksums.mjs). Le gel de devin-cli (« Failed to look up custom package devin-cli: no-result ») avait une AUTRE cause, orthogonale : la ligne `# renovate:` disait `datasource=custom` au lieu de `datasource=custom.devin-cli`.",
       "customType": "regex",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [

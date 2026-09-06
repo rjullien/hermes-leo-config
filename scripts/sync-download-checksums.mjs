@@ -35,11 +35,15 @@
 //   valeur publiée est introuvable ou illisible (version absente de l'index go.dev,
 //   nom de fichier absent de `gh_<V>_checksums.txt`, asset 404, renommage amont) :
 //   « je n'ai pas pu établir la valeur publiée » est un échec de vérification, pas
-//   une panne d'amont. Seule une INDISPONIBILITÉ (erreur réseau/DNS/TLS, 5xx,
-//   throttling — 429, ou 403 portant un indice de throttling —, flux coupé, budget
-//   épuisé) est retentée puis signalée en AVERTISSEMENT sans faire échouer le job :
-//   elle ne doit pas rendre `main` non mergeable alors que l'image reste
-//   construisible.
+//   une panne d'amont ; (c) TOUS les amonts sélectionnés sont indisponibles — la
+//   garde n'a alors rien vérifié, et un vert serait indiscernable d'un vrai
+//   contrôle ; (d) avec `--verify-artifacts`, moins d'artefacts rehashés que
+//   d'outils sélectionnés (c'est la seule rejouée régulière de S-01, elle ne doit
+//   pas se dégrader en avertissement dans un run post-merge que personne ne relit).
+//   Une INDISPONIBILITÉ PARTIELLE (erreur réseau/DNS/TLS, 5xx, throttling — 429,
+//   ou 403 portant un indice de throttling —, flux coupé, budget épuisé) est
+//   retentée puis signalée en AVERTISSEMENT sans faire échouer le job : elle ne
+//   doit pas rendre `main` non mergeable alors que l'image reste construisible.
 //   Chemin OK : aucun artefact n'est retéléchargé (5 petites requêtes). ATTENTION à
 //   la portée de ce raccourci : le `sha256sum -c` du Dockerfile rehashe bien l'archive
 //   réellement téléchargée, mais `pr-validation.yml` build avec `cache-from: type=gha`,
@@ -53,7 +57,15 @@
 // BUDGET DE TEMPS
 // Chaque requête a un timeout (60 s, 5 min pour un artefact) et 3 tentatives avec
 // backoff ; un budget GLOBAL borne l'ensemble du run pour que la garde ne puisse pas
-// occuper le job pendant des dizaines de minutes avant le build. Le job
+// occuper le job pendant des dizaines de minutes avant le build : 10 min en
+// `--check`, 20 min avec `--verify-artifacts` (140 Mo à retélécharger). Ce budget
+// est RÉPARTI en tranches égales entre les outils restants, sinon un seul amont
+// dégradé le consommait en entier et les suivants sortaient « budget épuisé » sans
+// avoir émis une requête. Conséquence assumée : le pire cas annoncé par outil
+// (3 tentatives × 5 min sur un artefact) dépasse sa tranche, donc les tentatives
+// supplémentaires ne servent qu'aux échecs RAPIDES (flux coupé d'emblée) ; un
+// artefact simplement trop lent épuise sa tranche, et c'est alors un ÉCHEC sous
+// `--verify-artifacts` (cas (d) ci-dessus), pas un avertissement. Le job
 // `build-and-verify` porte en plus un `timeout-minutes` (borne dure).
 //
 // CONTRAINTE : SANS DÉPENDANCE
@@ -102,7 +114,15 @@ const HTTP_ATTEMPTS = 3;
 const HTTP_RETRY_DELAY_MS = 2_000;
 // Borne globale du run, tous outils confondus (retries inclus). Sans elle, 5 outils
 // × 3 tentatives × timeout tiendraient le job requis occupé avant le build.
+// Elle est RÉPARTIE en tranches égales entre les outils restants (voir
+// `startToolBudget`) : sans tranche, un seul amont dégradé consommait la totalité
+// et les outils suivants sortaient en « budget épuisé » sans avoir émis une requête.
 const GLOBAL_BUDGET_MS = 10 * 60_000;
+// Avec --verify-artifacts, ~140 Mo sont retéléchargés (mesuré : 1,6 s en régime
+// nominal, ~10 s sur un runner lent) : la borne est relevée pour que chaque
+// artefact dispose d'une tranche utilisable, tout en restant sous le
+// `timeout-minutes` du job `build-and-verify`.
+const GLOBAL_BUDGET_ARTIFACTS_MS = 20 * 60_000;
 // Statuts qui décrivent une indisponibilité passagère, donc retentables — et, une
 // fois les tentatives épuisées, classés « amont indisponible ».
 // Un 404 N'EST PAS retenté et N'EST PAS une indisponibilité : l'asset n'existe pas
@@ -238,13 +258,39 @@ class VerificationError extends Error {
 // --- Utilitaires réseau / parsing -----------------------------------------
 
 let budgetDeadline = null;
+let budgetTotalMs = null;
+let toolDeadline = null;
 
 function startBudget(ms) {
+  budgetTotalMs = ms;
   budgetDeadline = Date.now() + ms;
+  toolDeadline = null;
+}
+
+/**
+ * Ouvre la tranche de budget de l'outil courant : ce qui reste du budget global
+ * divisé par le nombre d'outils encore à traiter, celui-ci compris. Un amont qui
+ * traîne ne peut donc pas priver les suivants de leur vérification, et le pire cas
+ * d'un outil est borné même quand la politique de retry annoncée (3 tentatives,
+ * jusqu'à 5 min pour un artefact) dépasse la tranche : les tentatives 2 et 3 ne
+ * servent alors qu'aux échecs RAPIDES (flux coupé d'emblée), un artefact
+ * simplement trop lent épuise sa tranche et sort en erreur de budget — rouge sous
+ * `--verify-artifacts` (voir main).
+ */
+function startToolBudget(remainingTools) {
+  if (budgetDeadline === null || remainingTools <= 0) {
+    toolDeadline = null;
+    return;
+  }
+  const left = Math.max(0, budgetDeadline - Date.now());
+  toolDeadline = Date.now() + Math.floor(left / remainingTools);
 }
 
 function remainingBudgetMs() {
-  return budgetDeadline === null ? Number.POSITIVE_INFINITY : budgetDeadline - Date.now();
+  const global =
+    budgetDeadline === null ? Number.POSITIVE_INFINITY : budgetDeadline - Date.now();
+  const tool = toolDeadline === null ? Number.POSITIVE_INFINITY : toolDeadline - Date.now();
+  return Math.min(global, tool);
 }
 
 function sleep(ms) {
@@ -263,7 +309,10 @@ function warn(message) {
 
 /**
  * Réponse qui ressemble à du throttling plutôt qu'à un refus définitif : en-tête
- * `retry-after`, quota GitHub épuisé, ou corps qui le dit. Sert à trancher les 403.
+ * `retry-after`, quota GitHub épuisé, ou corps qui le dit. Sert à trancher les 403
+ * ET RIEN D'AUTRE (voir l'appel dans `httpGet`) : appliqué à tous les statuts, il
+ * transformait un 404 portant `retry-after` en indisponibilité, donc en garde
+ * verte, alors qu'un 404 dit que l'asset n'existe pas.
  */
 function isThrottling(res, body) {
   if (res.headers.get('retry-after')) return true;
@@ -284,7 +333,9 @@ async function httpGet(url, { timeoutMs = HTTP_TIMEOUT_MS } = {}) {
     const remaining = remainingBudgetMs();
     if (remaining <= 0) {
       throw new UpstreamError(
-        `budget global de ${Math.round(GLOBAL_BUDGET_MS / 1000)} s épuisé avant ${url}`,
+        `budget de temps épuisé avant ${url} (borne globale ` +
+          `${Math.round((budgetTotalMs ?? 0) / 1000)} s, répartie en tranches égales ` +
+          'entre les outils)',
       );
     }
 
@@ -312,7 +363,10 @@ async function httpGet(url, { timeoutMs = HTTP_TIMEOUT_MS } = {}) {
     // distinguer un throttling d'un refus définitif, et à enrichir le message.
     const errorBody = await res.text().catch(() => '');
 
-    if (RETRYABLE_STATUS.has(res.status) || isThrottling(res, errorBody)) {
+    // Le test de throttling ne s'applique QU'AU 403, seul statut ambigu : un 404
+    // n'est jamais une indisponibilité, même accompagné d'un `retry-after` ou
+    // d'un `x-ratelimit-remaining: 0` (l'asset n'existe pas, point).
+    if (RETRYABLE_STATUS.has(res.status) || (res.status === 403 && isThrottling(res, errorBody))) {
       lastError = new UpstreamError(`HTTP ${res.status} ${res.statusText} sur ${url}`);
       if (attempt < HTTP_ATTEMPTS) {
         await sleep(HTTP_RETRY_DELAY_MS * attempt);
@@ -321,11 +375,23 @@ async function httpGet(url, { timeoutMs = HTTP_TIMEOUT_MS } = {}) {
       throw lastError;
     }
 
+    // Un 403 sans en-tête ni corps exploitable n'est pas forcément l'amont : un
+    // proxy de sortie, un WAF ou un CDN qui refuse le user-agent produit la même
+    // réponse. Le fail-closed reste le bon comportement, mais le message doit
+    // citer cette piste au lieu d'envoyer chercher un asset renommé.
+    const intermediaryHint =
+      res.status === 403
+        ? ' Hypothèse à écarter en premier sur un 403 sans corps : un intermédiaire ' +
+          'réseau (proxy de sortie, WAF, CDN refusant le user-agent) plutôt que ' +
+          "l'amont — rejouer la même URL depuis un autre réseau tranche en une minute."
+        : '';
+
     throw new VerificationError(
       `HTTP ${res.status} ${res.statusText} sur ${url}. L'amont a répondu et refuse ` +
         "cette URL : version inexistante, asset renommé ou retiré. Ce n'est pas une " +
         'indisponibilité passagère (aucun indice de throttling dans la réponse) : ' +
         'corriger la version épinglée du Dockerfile ou la table TOOLS de ce script.' +
+        intermediaryHint +
         (errorBody ? `\nDébut de la réponse : ${errorBody.slice(0, 200)}` : ''),
     );
   }
@@ -556,11 +622,13 @@ en croisant le checksum publié en amont et un SHA-256 recalculé localement.
 
 Options :
   --check             (défaut) ne modifie rien. Sort 1 si un checksum commité
-                      diffère du checksum publié en amont, ou si la valeur
-                      publiée n'a pas pu être établie (404, 403 sur objet absent,
-                      asset renommé, version absente de l'index). Seule une
-                      indisponibilité amont (réseau, 5xx, throttling) est retentée
-                      puis signalée en AVERTISSEMENT, sans faire échouer la commande.
+                      diffère du checksum publié en amont, si la valeur publiée
+                      n'a pas pu être établie (404, 403 sur objet absent, asset
+                      renommé, version absente de l'index), ou si TOUS les amonts
+                      sélectionnés sont indisponibles (rien n'a été vérifié). Une
+                      indisponibilité PARTIELLE (réseau, 5xx, throttling) est
+                      retentée puis signalée en AVERTISSEMENT, sans faire échouer
+                      la commande.
   --write             réécrit la ligne ARG <OUTIL>_SHA256 des outils concernés.
                       Tout échec est fatal et n'écrit rien.
   --only=<outil>      limite le traitement à un outil. Accepte gws, gh, kubectl,
@@ -571,7 +639,9 @@ Options :
                       quand le checksum commité est déjà à jour (~140 Mo). Sert à
                       rejouer la contre-vérification S-01 que le cache de couches
                       Docker ne rejoue pas sur les PRs : utilisé sur push: main,
-                      pas sur chaque PR.
+                      pas sur chaque PR. Sort 1 si un seul artefact n'a pas pu
+                      être rehashé (amont injoignable, flux coupé, budget épuisé) :
+                      ce mode n'a de valeur que complet.
   --help              affiche cette aide
 
 Outils gérés : ${TOOLS.map((t) => t.prefix).join(', ')}
@@ -616,7 +686,7 @@ async function main() {
     return 0;
   }
 
-  startBudget(GLOBAL_BUDGET_MS);
+  startBudget(options.verifyArtifacts ? GLOBAL_BUDGET_ARTIFACTS_MS : GLOBAL_BUDGET_MS);
 
   let content = readDockerfile();
   const state = parseDockerfile(content, selected);
@@ -625,9 +695,18 @@ async function main() {
   let mismatches = 0;
   let failures = 0;
   let rewritten = 0;
-  let unreachable = 0;
+  // Outils pour lesquels la valeur publiée n'a PAS pu être établie (amont
+  // indisponible) : aucune vérification n'a eu lieu pour eux.
+  let unverified = 0;
+  // Outils dont l'artefact a réellement été retéléchargé et rehashé.
+  let rehashed = 0;
 
+  let index = 0;
   for (const tool of selected) {
+    // Tranche de budget de cet outil (cf. startToolBudget).
+    index += 1;
+    startToolBudget(selected.length - index + 1);
+
     const { version, sha256: committed } = state.get(tool.prefix);
     const label = `${tool.prefix.padEnd(8)} ${version.padEnd(10)}`;
 
@@ -640,7 +719,7 @@ async function main() {
       published = await fetchPublishedChecksum(tool, version);
     } catch (error) {
       if (isCheck && error instanceof UpstreamError) {
-        unreachable += 1;
+        unverified += 1;
         console.log(`${label} AMONT INDISPONIBLE (checksum non vérifié)`);
         warn(`${tool.prefix} ${version} : ${error.message}`);
         continue;
@@ -666,11 +745,11 @@ async function main() {
       }
       try {
         await verifyAgainstArtifact(tool, version, published.value, published.url);
+        rehashed += 1;
         console.log(`${label} OK       ${published.value} (artefact rehashé)`);
       } catch (error) {
         if (isCheck && error instanceof UpstreamError) {
-          unreachable += 1;
-          console.log(`${label} OK       ${published.value} (artefact non rehashé)`);
+          console.log(`${label} OK       ${published.value} (artefact NON rehashé)`);
           warn(`${tool.prefix} ${version} : ${error.message}`);
           continue;
         }
@@ -699,6 +778,7 @@ async function main() {
     try {
       await verifyAgainstArtifact(tool, version, published.value, published.url);
       arbitrated = true;
+      rehashed += 1;
       console.log('  = artefact rehashé : concorde avec le checksum publié');
     } catch (error) {
       if (isCheck && error instanceof UpstreamError) {
@@ -741,16 +821,51 @@ async function main() {
   }
 
   console.log(
-    `Résumé : ${selected.length} outil(s) vérifié(s), ${mismatches} écart(s), ` +
-      `${failures} échec(s) de vérification, ${unreachable} amont(s) indisponible(s).` +
+    `Résumé : ${selected.length} outil(s) traité(s), ${mismatches} écart(s), ` +
+      `${failures} échec(s) de vérification, ${unverified} amont(s) indisponible(s)` +
+      (options.verifyArtifacts ? `, ${rehashed}/${selected.length} artefact(s) rehashé(s)` : '') +
+      '.' +
       (mismatches > 0
         ? ' Relancer `node scripts/sync-download-checksums.mjs --write` pour corriger.'
         : ''),
   );
-  // Un écart ou un checksum publié non établi font échouer la garde. Seule une
-  // indisponibilité amont ne la fait pas échouer : l'image reste construisible et
-  // le `sha256sum -c` du build reste le filet final quand la couche est rejouée.
-  return mismatches > 0 || failures > 0 ? 1 : 0;
+
+  // AUCUNE valeur publiée établie : la garde n'a rien vérifié du tout. Un runner
+  // throttlé sur les 5 amonts rendait sinon un vert indiscernable d'un vrai
+  // contrôle. Un amont sur cinq reste un avertissement (l'image est construisible
+  // et les 4 autres ont bien été vérifiés) ; les cinq sont un échec.
+  const nothingVerified = unverified > 0 && unverified === selected.length;
+  if (nothingVerified) {
+    console.error(
+      `ÉCHEC : les ${selected.length} amont(s) sélectionné(s) sont indisponibles, aucune ` +
+        "valeur publiée n'a pu être établie. La garde n'a rien vérifié : ne pas lire ce " +
+        'run comme un contrôle réussi (réseau du runner, throttling global, coupure DNS).',
+    );
+  }
+
+  // --verify-artifacts est la SEULE rejouée régulière de la contre-vérification
+  // S-01 (le cache de couches Docker empêche le build de rehasher quoi que ce
+  // soit), et elle tourne sur `push: main`, dans un run que personne ne relit.
+  // Un artefact manquant à l'appel doit donc être rouge, pas un `::warning::`
+  // noyé : sinon un CDN qui coupe ou une tranche de budget épuisée donne un run
+  // vert qui se lit comme un run ayant tout revérifié.
+  const artifactsIncomplete = options.verifyArtifacts && rehashed < selected.length;
+  if (artifactsIncomplete) {
+    console.error(
+      `ÉCHEC : --verify-artifacts n'a rehashé que ${rehashed} artefact(s) sur ` +
+        `${selected.length}. C'est la seule rejouée régulière de la contre-vérification ` +
+        'S-01 : un artefact non rehashé n\'est pas un détail, il laisse la valeur ' +
+        'commitée attestée par le seul checksum publié. Voir les avertissements ' +
+        'ci-dessus (amont indisponible, flux coupé, budget épuisé) et relancer.',
+    );
+  }
+
+  // Un écart, un checksum publié non établi, l'indisponibilité de TOUS les amonts
+  // ou un `--verify-artifacts` incomplet font échouer la garde. Une indisponibilité
+  // partielle sans `--verify-artifacts` ne la fait pas échouer : l'image reste
+  // construisible et le `sha256sum -c` du build reste le filet final quand la
+  // couche est rejouée.
+  return mismatches > 0 || failures > 0 || nothingVerified || artifactsIncomplete ? 1 : 0;
 }
 
 try {
