@@ -16,20 +16,31 @@ permissions:
   contents: read
 
 jobs:
-  # Filet de sécurité derrière les `postUpgradeTasks` de renovate.json : si la
-  # resynchronisation `ARG <OUTIL>_SHA256` ne s'est pas exécutée (RENOVATE_ALLOWED_COMMANDS
-  # retiré, script en échec, édition manuelle...), la PR échoue ICI en quelques
-  # secondes avec un message explicite nommant l'outil et les deux valeurs, au
-  # lieu d'un `sha256sum -c` opaque au bout d'un build de ~300 Mo.
-  # Le script contre-vérifie chaque checksum : valeur publiée en amont VS hash
-  # recalculé sur l'artefact retéléchargé (S-01).
-  checksums:
+  build-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Filet de sécurité derrière les `postUpgradeTasks` de renovate.json : si
+      # la resynchronisation `ARG <OUTIL>_SHA256` ne s'est pas exécutée
+      # (RENOVATE_ALLOWED_COMMANDS retiré, script en échec, édition manuelle...),
+      # la PR échoue ICI, avant le build, avec un message nommant l'outil et les
+      # deux valeurs, au lieu d'un `sha256sum -c` opaque au bout du
+      # téléchargement de 70 Mo de Go.
+      #
+      # POURQUOI UNE ÉTAPE ET PAS UN JOB SÉPARÉ : `build-and-verify` est le check
+      # REQUIS de la branch protection de `main`. En job distinct relié par
+      # `needs:`, un échec de la garde rendait `build-and-verify` *skipped*, et
+      # GitHub compte un check requis skipped comme satisfait : le merge humain
+      # redevenait possible sur une PR dont l'image n'a jamais été construite ni
+      # scannée. En étape du job requis, un échec est un échec.
+      #
+      # Le mode --check n'interroge que les 5 endpoints de checksum publiés
+      # (quelques requêtes, pas de retéléchargement d'artefact : le
+      # `sha256sum -c` du Dockerfile recalcule déjà le hash de ce qui est
+      # réellement téléchargé, quelques étapes plus bas). Un amont injoignable
+      # produit un avertissement, pas un échec — voir l'en-tête du script.
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -37,13 +48,6 @@ jobs:
 
       - name: Vérifier les SHA-256 des 5 téléchargements
         run: node scripts/sync-download-checksums.mjs --check
-
-  build-and-verify:
-    runs-on: ubuntu-latest
-    needs: checksums
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4

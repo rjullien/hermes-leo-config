@@ -22,6 +22,14 @@ les ConfigMaps (vps-infra), pas dans l'image.
 4. **Ne pas retirer un outil** tant que le pod l'utilise (check vps-infra +
    skills + crons avant). Exemple : himalaya a été retiré car gws le remplace
    pour Gmail — mais vérifier les usages avant chaque retrait.
+   Si un retrait est décidé : **retirer l'outil de la table `TOOLS` de
+   `scripts/sync-download-checksums.mjs` dans le MÊME commit**. Le script exige
+   le couple `ARG <OUTIL>_VERSION` / `ARG <OUTIL>_SHA256` de chaque outil qu'il
+   connaît (fail-closed volontaire) : sinon `--check` échoue pour les cinq, avec
+   un message qui nomme l'outil manquant. Idem si l'URL téléchargée par le `RUN`
+   change (renommage d'asset amont, variante `-musl`…) : le script recroise son
+   URL avec celle du Dockerfile et refuse de travailler si elles divergent, pour
+   éviter d'écrire le checksum d'un fichier que le build ne télécharge pas.
 5. **Ne pas épingler une version** sans le commentaire Renovate qui précède
    l'ARG, ni sans son `ARG <OUTIL>_SHA256` juste après :
    ```dockerfile
@@ -85,11 +93,38 @@ seulement, empêchent le `ARG <OUTIL>_SHA256` de rester périmé :
    une config **admin** (self-hosted), impossible à définir depuis
    `renovate.json`. C'est elle qui *autorise* la commande ci-dessus.
 
-**Retirer l'un des deux ne produit aucune erreur visible** : Renovate bumpe la
-version seule, `sha256sum -c` rejette la nouvelle archive et la PR échoue au
-build (symptôme vécu : PR #26 golang 1.27.1 « blocked »). Le job `checksums` de
-`pr-validation.yml` est le filet de sécurité : il nomme l'outil et les deux
-valeurs en quelques secondes au lieu d'un échec opaque après ~300 Mo.
+**Retirer l'un des deux casse la synchro, mais pas de la même façon :**
+
+- retirer `postUpgradeTasks` de `renovate.json` **ne produit aucune erreur
+  visible** : Renovate bumpe la version seule, et l'échec n'apparaît qu'au build
+  sur `sha256sum -c` (symptôme vécu : PR #26 golang 1.27.1 « blocked ») ;
+- retirer `RENOVATE_ALLOWED_COMMANDS` **est signalé** : Renovate loggue un
+  `warn` et remonte un `artifactErrors` affiché dans le corps de la PR, qui
+  nomme la commande refusée (« Post-upgrade command '…' has not been added to
+  the allowed list in allowedCommands »). Le checksum reste périmé pour autant.
+
+Dans les deux cas, le filet de sécurité est l'étape « Vérifier les SHA-256 des
+5 téléchargements » de `pr-validation.yml` : elle nomme l'outil et les deux
+valeurs **avant** le build, au lieu d'un échec opaque après le téléchargement de
+70 Mo de Go. C'est une **étape du job `build-and-verify`**, pas un job séparé :
+en job distinct relié par `needs:`, son échec rendait le check requis
+`build-and-verify` *skipped*, et un check requis skipped est compté comme
+satisfait par la branch protection. Ne pas la ré-extraire en job sans ajouter ce
+job aux checks requis de `main`.
+
+⚠️ **Un amont injoignable n'est pas un échec.** Le mode `--check` retente
+(3 tentatives, timeout 60 s) puis se contente d'un **avertissement** si l'amont
+répond 5xx, a retiré l'asset ou throttle le runner : seul un vrai écart entre le
+checksum commité et le checksum publié sort en 1. Sans ça, une indisponibilité
+amont rendrait `main` non mergeable alors que l'image reste construisible. En
+mode `--write` (Renovate), au contraire, **tout échec est fatal** et rien n'est
+écrit : Renovate produit alors une PR portant un `artifactErrors` plutôt qu'un
+faux checksum. Cas concret attendu : kubectl est suivi en `github-tags` sur
+`kubernetes/kubernetes`, alors que le binaire vient de `dl.k8s.io`. Un tag peut
+exister **avant** la publication des binaires ; dans cette fenêtre le `--write`
+échoue et la PR kubectl arrive avec un bloc d'erreur au lieu d'un bump propre.
+C'est fail-closed et voulu : relancer `renovate.yml` une fois les binaires
+publiés.
 
 ⚠️ **Ne pas remettre le groupe de capture `currentDigest`** dans
 `customManagers` : aucune des datasources utilisées (`golang-version`,
@@ -116,11 +151,27 @@ Sources amont du checksum, par outil (utilisées par le script) :
 pas un hash (vérifié). Toute implémentation qui suppose cette URL écrit du HTML
 dans `GO_SHA256`. Utiliser l'endpoint `?mode=json`.
 
-Le script ne fait jamais confiance à une seule source : il lit le checksum
-publié en amont, **retélécharge l'artefact et recalcule le SHA-256 en flux**, et
-refuse d'écrire quoi que ce soit si les deux ne concordent pas. C'est ce qui
-préserve S-01 (la valeur commitée reste une attente vérifiée indépendamment, pas
-une valeur reprise de confiance).
+Avant d'écrire, le script ne se contente pas du checksum publié : il
+**retélécharge l'artefact et recalcule le SHA-256 en flux**, et n'écrit rien si
+les deux valeurs divergent.
+
+**Portée exacte de cette contre-vérification** (à ne pas surestimer) : pour un
+outil donné, le checksum publié et l'artefact viennent du **même éditeur, même
+domaine, même chaîne TLS**. Elle attrape un téléchargement tronqué, un
+cache/miroir divergent, une publication incohérente entre le fichier de checksums
+et l'archive — elle **n'attrape pas** un éditeur qui publierait un artefact
+malveillant avec le checksum correspondant (compromission d'un compte de
+release). Ce n'est donc pas une attestation indépendante de la source, seulement
+du transport.
+
+Ce que S-01 conserve malgré tout : la valeur est **figée dans le dépôt**,
+relisible dans le diff de la PR, et **rejouée à chaque build** contre le CDN
+(donc une archive substituée après coup fait échouer le build). Comme la règle
+qui porte `postUpgradeTasks` porte aussi `automerge: true`, le seul délai humain
+restant sur ce chemin est `minimumReleaseAge` (3 jours pour les binaires) : c'est
+un choix assumé ici, la review humaine se faisant au niveau vps-infra quand
+l'image est déployée. Si ce compromis doit changer un jour, la bonne manette est
+`minimumReleaseAge`, pas la désactivation de l'automerge (cf. plus haut).
 
 ## 🧪 Vérification après build
 

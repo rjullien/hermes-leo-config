@@ -30,8 +30,19 @@ Ces checksums sont maintenus par machine, jamais à la main :
 lit le checksum **publié par l'éditeur** (release GitHub, `dl.k8s.io`,
 `manifest.json` Devin, index JSON de go.dev), **retélécharge l'artefact et
 recalcule son SHA-256 en flux**, et refuse d'écrire une valeur si les deux ne
-concordent pas. La valeur commitée reste ainsi une attente vérifiée de façon
-indépendante, et non une valeur reprise de confiance au moment du build.
+concordent pas.
+
+**Ce que cette double lecture couvre, et ce qu'elle ne couvre pas.** Pour un
+outil donné, le checksum publié et l'artefact viennent du **même éditeur, sur le
+même domaine et la même chaîne TLS**. Le croisement détecte un téléchargement
+tronqué, un cache ou miroir divergent, une publication incohérente entre le
+fichier de checksums et l'archive ; il ne détecte **pas** un éditeur qui
+publierait un artefact malveillant avec le checksum correspondant. Ce n'est donc
+pas une attestation indépendante de la *source*, mais du *transport*. Ce qui
+reste acquis : la valeur est figée dans le dépôt, relisible dans le diff de la
+PR, et rejouée à chaque build contre le CDN — une archive substituée après le
+bump fait échouer le build. Le délai avant merge automatique reste
+`minimumReleaseAge` (3 jours, cf. §Renovate).
 
 ```bash
 node scripts/sync-download-checksums.mjs --check   # vérifie, sort 1 si un SHA est périmé
@@ -45,8 +56,15 @@ Renovate. Deux garde-fous l'exécutent automatiquement :
 - **Renovate** (`postUpgradeTasks`) le lance sur sa propre branche quand il
   bumpe une version, si bien que version et checksum changent **dans le même
   commit** et restent relisibles dans le diff de la PR ;
-- **la CI** (job `checksums` de `pr-validation.yml`) le rejoue en mode `--check`
-  sur chaque PR, en quelques secondes et **avant** le build de l'image.
+- **la CI** (première étape du job `build-and-verify` de `pr-validation.yml`) le
+  rejoue en mode `--check` sur chaque PR, **avant** le build de l'image.
+
+En mode `--check`, le script ne relit que les checksums publiés (5 requêtes, pas
+de retéléchargement des artefacts : le `sha256sum -c` du `Dockerfile` recalcule
+déjà le hash de ce qui est réellement téléchargé) ; il ne retélécharge l'artefact
+que pour trancher un écart. Un amont indisponible est retenté puis signalé en
+**avertissement** : seul un checksum réellement périmé fait rougir la CI, une
+panne amont ne bloque pas les PRs sans rapport.
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -109,11 +127,15 @@ une release compromise avant merge.
 création de la PR. Quand la PR apparaît, le délai de stabilité est déjà satisfait
 et il ne reste à attendre que `pr-validation` (~4 min).
 
-`pr-validation.yml` enchaîne deux jobs : `checksums` (quelques secondes, vérifie
-les 5 SHA-256, cf. §Vérification des téléchargements) puis `build-and-verify`
-qui en dépend (`needs:`). Un checksum périmé fait donc rougir la PR
-immédiatement, avec le nom de l'outil et les deux valeurs, au lieu d'un
-`sha256sum -c` opaque au bout du téléchargement de ~300 Mo de Go.
+`pr-validation.yml` vérifie les 5 SHA-256 (cf. §Vérification des téléchargements)
+**dès la première étape** du job `build-and-verify`, avant tout build : un
+checksum périmé fait rougir la PR en moins d'une minute, avec le nom de l'outil et
+les deux valeurs, au lieu d'un `sha256sum -c` opaque au bout du téléchargement de
+70 Mo de Go. Cette garde est volontairement une étape et non un job relié par
+`needs:` : en job séparé, son échec rendait `build-and-verify` *skipped*, et un
+check requis skipped est compté comme satisfait par la branch protection — le
+merge humain redevenait possible sur une PR dont l'image n'a jamais été
+construite.
 
 Le check `build-and-verify` est **required** dans la branch protection de `main`,
 avec « branche à jour avant merge » activé. Renovate rebase automatiquement dans
