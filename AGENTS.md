@@ -29,7 +29,10 @@ les ConfigMaps (vps-infra), pas dans l'image.
    un message qui nomme l'outil manquant. Idem si l'URL téléchargée par le `RUN`
    change (renommage d'asset amont, variante `-musl`…) : le script recroise son
    URL avec celle du Dockerfile et refuse de travailler si elles divergent, pour
-   éviter d'écrire le checksum d'un fichier que le build ne télécharge pas.
+   éviter d'écrire le checksum d'un fichier que le build ne télécharge pas. Ce
+   recroisement ne lit **que le code de l'instruction `RUN` qui vérifie
+   `${<OUTIL>_SHA256}`** : les commentaires sont ignorés, pour qu'un commentaire
+   citant l'ancienne URL ne puisse pas valider un `RUN` basculé sur une autre.
 5. **Ne pas épingler une version** sans le commentaire Renovate qui précède
    l'ARG, ni sans son `ARG <OUTIL>_SHA256` juste après :
    ```dockerfile
@@ -45,6 +48,7 @@ les ConfigMaps (vps-infra), pas dans l'image.
    node scripts/sync-download-checksums.mjs --check   # CI : sort 1 si un SHA est périmé
    node scripts/sync-download-checksums.mjs --write   # réécrit les lignes _SHA256 périmées
    node scripts/sync-download-checksums.mjs --write --only=golang   # un seul outil
+   node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 5 artefacts
    ```
    Le script est **sans dépendance** (Node + stdlib uniquement, pas de
    `package.json`, pas de `curl`/`jq`) parce qu'il doit tourner dans le
@@ -106,25 +110,55 @@ seulement, empêchent le `ARG <OUTIL>_SHA256` de rester périmé :
 Dans les deux cas, le filet de sécurité est l'étape « Vérifier les SHA-256 des
 5 téléchargements » de `pr-validation.yml` : elle nomme l'outil et les deux
 valeurs **avant** le build, au lieu d'un échec opaque après le téléchargement de
-70 Mo de Go. C'est une **étape du job `build-and-verify`**, pas un job séparé :
-en job distinct relié par `needs:`, son échec rendait le check requis
+70 Mo de Go. C'est une **étape du job `build-and-verify`** (la 3ᵉ, après le
+checkout et `setup-node`, et avant `Build image`), pas un job séparé : en job
+distinct relié par `needs:`, son échec rendait le check requis
 `build-and-verify` *skipped*, et un check requis skipped est compté comme
 satisfait par la branch protection. Ne pas la ré-extraire en job sans ajouter ce
 job aux checks requis de `main`.
 
-⚠️ **Un amont injoignable n'est pas un échec.** Le mode `--check` retente
-(3 tentatives, timeout 60 s) puis se contente d'un **avertissement** si l'amont
-répond 5xx, a retiré l'asset ou throttle le runner : seul un vrai écart entre le
-checksum commité et le checksum publié sort en 1. Sans ça, une indisponibilité
-amont rendrait `main` non mergeable alors que l'image reste construisible. En
-mode `--write` (Renovate), au contraire, **tout échec est fatal** et rien n'est
+⚠️ **Ce qui fait échouer la garde, et ce qui ne le fait pas.** En `--check`,
+sortent en 1 : (a) un écart entre le checksum commité et le checksum publié — la
+divergence est alors CERTAINE, l'artefact n'est retéléchargé que pour dire lequel
+des deux a raison et n'a **pas** de droit de veto sur le code de sortie ; (b) un
+checksum publié impossible à établir alors que l'amont a répondu (version absente
+de l'index go.dev, nom de fichier absent de `gh_<V>_checksums.txt`, asset 404 ou
+renommé) — « je n'ai pas pu établir la valeur publiée » est un échec de
+vérification, pas une panne. Ne produit qu'un **avertissement** (exit 0) la seule
+INDISPONIBILITÉ : erreur réseau/DNS/TLS, 5xx, throttling, flux coupé, budget
+épuisé, après 3 tentatives (timeout 60 s, 5 min pour un artefact). Sans ça, une
+panne amont rendrait `main` non mergeable alors que l'image reste construisible. Un
+budget global de 10 min borne le run, et `build-and-verify` porte un
+`timeout-minutes: 30`.
+
+Le **403 ne peut pas être classé sur le seul code** : GitHub le renvoie sur
+throttling secondaire (à retenter), mais `static.devin.ai` le renvoie pour un objet
+**inexistant** (vérifié : `/cli/9999.0.0/manifest.json` → 403, là où GitHub et
+`dl.k8s.io` renvoient 404). Le script ne le retente donc que si la réponse porte un
+indice de throttling (`retry-after`, `x-ratelimit-remaining: 0`, corps mentionnant
+un rate limit) ; sinon il le traite comme un 404. Ne pas « simplifier » en
+remettant 403 dans la liste des statuts retentables : une version devin inexistante
+redeviendrait une garde verte.
+
+⚠️ **Le `sha256sum -c` du build n'est pas un filet permanent.** Le build de PR
+utilise `cache-from: type=gha` : la couche `RUN curl … && sha256sum -c` n'est
+rejouée que si son `ARG` version ou SHA change. Sur une PR qui ne touche pas ces
+lignes, aucun octet d'artefact n'est rehashé. D'où `--verify-artifacts`, passé par
+`pr-validation.yml` sur `push: main` uniquement : il rehashe les 5 artefacts
+(~140 Mo) une fois par merge. Ne pas l'ajouter au chemin PR (coût réseau par PR)
+ni le retirer de `push: main` (c'est la seule rejouée régulière de la
+contre-vérification S-01).
+
+En mode `--write` (Renovate), au contraire, **tout échec est fatal** et rien n'est
 écrit : Renovate produit alors une PR portant un `artifactErrors` plutôt qu'un
 faux checksum. Cas concret attendu : kubectl est suivi en `github-tags` sur
 `kubernetes/kubernetes`, alors que le binaire vient de `dl.k8s.io`. Un tag peut
 exister **avant** la publication des binaires ; dans cette fenêtre le `--write`
-échoue et la PR kubectl arrive avec un bloc d'erreur au lieu d'un bump propre.
-C'est fail-closed et voulu : relancer `renovate.yml` une fois les binaires
-publiés.
+échoue (404 sur `dl.k8s.io` = échec de vérification, pas indisponibilité) et la PR
+kubectl arrive avec un bloc d'erreur au lieu d'un bump propre. C'est fail-closed et
+voulu : relancer `renovate.yml` une fois les binaires publiés. La fenêtre ne
+contamine pas les autres PRs : rien n'ayant été écrit, le Dockerfile garde une
+version dont les binaires existent, et `--check` reste vert.
 
 ⚠️ **Ne pas remettre le groupe de capture `currentDigest`** dans
 `customManagers` : aucune des datasources utilisées (`golang-version`,

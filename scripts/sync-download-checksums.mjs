@@ -28,17 +28,33 @@
 // CDN. Le seul délai humain sur ce chemin est `minimumReleaseAge` (3 jours).
 //
 // MODES ET CODES DE SORTIE
-// --check : un écart entre le checksum commité et le checksum publié en amont
-//   sort 1 (c'est le seul cas que la garde doit faire échouer). Un amont
-//   injoignable (5xx, asset retiré, throttling) est retenté puis signalé en
-//   AVERTISSEMENT sans faire échouer le job : une indisponibilité amont ne doit
-//   pas rendre `main` non mergeable alors que l'image reste construisible.
-//   Chemin OK : aucun artefact n'est retéléchargé, le `sha256sum -c` du build
-//   recalcule déjà le hash de l'archive réellement téléchargée. L'artefact n'est
-//   téléchargé que si un écart est détecté, pour trancher lequel des deux a
-//   raison avant d'échouer.
+// --check : sort 1 dès qu'un checksum ne peut pas être déclaré à jour, c'est-à-dire
+//   (a) le checksum commité diffère du checksum publié en amont — la divergence est
+//   CERTAINE à ce stade, l'artefact ne sert qu'à dire lequel des deux a raison, donc
+//   il n'a pas droit de veto sur le code de sortie ; (b) l'amont a répondu mais la
+//   valeur publiée est introuvable ou illisible (version absente de l'index go.dev,
+//   nom de fichier absent de `gh_<V>_checksums.txt`, asset 404, renommage amont) :
+//   « je n'ai pas pu établir la valeur publiée » est un échec de vérification, pas
+//   une panne d'amont. Seule une INDISPONIBILITÉ (erreur réseau/DNS/TLS, 5xx,
+//   throttling — 429, ou 403 portant un indice de throttling —, flux coupé, budget
+//   épuisé) est retentée puis signalée en AVERTISSEMENT sans faire échouer le job :
+//   elle ne doit pas rendre `main` non mergeable alors que l'image reste
+//   construisible.
+//   Chemin OK : aucun artefact n'est retéléchargé (5 petites requêtes). ATTENTION à
+//   la portée de ce raccourci : le `sha256sum -c` du Dockerfile rehashe bien l'archive
+//   réellement téléchargée, mais `pr-validation.yml` build avec `cache-from: type=gha`,
+//   donc la couche `RUN curl … && sha256sum -c` n'est rejouée que lorsque son `ARG`
+//   version ou SHA change. Sur une PR qui ne touche pas ces lignes, PERSONNE ne
+//   rehashe d'octets. C'est pourquoi `--verify-artifacts` existe et est utilisé sur
+//   `push: main` (voir pr-validation.yml).
 // --write : tout échec est fatal (exit 1, rien n'est écrit) pour que Renovate
 //   remonte un `artifactErrors` visible dans la PR plutôt qu'un checksum faux.
+//
+// BUDGET DE TEMPS
+// Chaque requête a un timeout (60 s, 5 min pour un artefact) et 3 tentatives avec
+// backoff ; un budget GLOBAL borne l'ensemble du run pour que la garde ne puisse pas
+// occuper le job pendant des dizaines de minutes avant le build. Le job
+// `build-and-verify` porte en plus un `timeout-minutes` (borne dure).
 //
 // CONTRAINTE : SANS DÉPENDANCE
 // Ce script tourne dans le conteneur ghcr.io/renovatebot/renovate, qui embarque
@@ -51,10 +67,12 @@
 // Une divergence (renommage d'asset amont, passage de gws en -musl…) donnerait
 // une garde verte et un build rouge. Pour fermer la boucle, chaque URL est
 // recroisée avec le Dockerfile AVANT tout appel réseau : l'URL modèle
-// (`${<OUTIL>_VERSION}` en place de la version) doit apparaître telle quelle
-// dans le Dockerfile, sinon on échoue en nommant les deux valeurs. Corollaire
-// assumé : retirer un outil de l'image (règle 4 d'AGENTS.md) impose d'éditer
-// cette table dans le même commit.
+// (`${<OUTIL>_VERSION}` en place de la version) doit apparaître telle quelle dans
+// l'instruction `RUN` qui vérifie `${<OUTIL>_SHA256}` — pas ailleurs dans le
+// fichier. Les lignes de commentaire sont ignorées : un commentaire citant
+// l'ancienne URL ne doit pas pouvoir valider un `RUN` basculé sur une autre.
+// Corollaire assumé : retirer un outil de l'image (règle 4 d'AGENTS.md) impose
+// d'éditer cette table dans le même commit.
 //
 // PIÈGE GO : https://go.dev/dl/goX.Y.Z.linux-amd64.tar.gz.sha256 N'EXISTE PAS en
 // tant que checksum : cette URL renvoie une page HTML. Le checksum Go se lit sur
@@ -63,6 +81,7 @@
 // finir dans le Dockerfile.
 //
 // Usage : node scripts/sync-download-checksums.mjs [--check|--write] [--only=<outil>]
+//                                                  [--verify-artifacts]
 
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -76,11 +95,25 @@ const DOCKERFILE = join(SCRIPT_DIR, '..', 'Dockerfile');
 const HEX64 = /^[0-9a-f]{64}$/;
 const USER_AGENT = 'hermes-leo-config-sync-download-checksums';
 const HTTP_TIMEOUT_MS = 60_000;
+// Un artefact peut peser 70 Mo (Go) et `AbortSignal.timeout` couvre aussi la
+// lecture du corps : 60 s imposeraient 1,2 Mo/s au runner.
+const ARTIFACT_TIMEOUT_MS = 300_000;
 const HTTP_ATTEMPTS = 3;
 const HTTP_RETRY_DELAY_MS = 2_000;
-// Statuts qui décrivent une indisponibilité passagère, donc retentables.
-// Un 404 ne l'est pas : l'asset n'existe pas (encore), retenter est inutile.
+// Borne globale du run, tous outils confondus (retries inclus). Sans elle, 5 outils
+// × 3 tentatives × timeout tiendraient le job requis occupé avant le build.
+const GLOBAL_BUDGET_MS = 10 * 60_000;
+// Statuts qui décrivent une indisponibilité passagère, donc retentables — et, une
+// fois les tentatives épuisées, classés « amont indisponible ».
+// Un 404 N'EST PAS retenté et N'EST PAS une indisponibilité : l'asset n'existe pas
+// (version inexistante, asset renommé/retiré), c'est un échec de vérification.
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+// 403 est ambigu et ne peut pas être classé sur le seul code : GitHub le renvoie
+// sur throttling secondaire (indisponibilité, à retenter) alors que static.devin.ai
+// le renvoie pour un objet INEXISTANT (vérifié : /cli/9999.0.0/manifest.json -> 403).
+// On ne le retente donc que s'il ressemble à du throttling (en-têtes ou corps),
+// sinon c'est un échec de vérification comme un 404.
+const THROTTLING_HINT = /rate limit|secondary rate|abuse detection|too many requests|throttl/i;
 
 // --- Table des outils ------------------------------------------------------
 // `prefix`  : préfixe des ARG dans le Dockerfile (ARG <prefix>_VERSION / _SHA256)
@@ -173,18 +206,45 @@ const TOOLS = [
   },
 ];
 
-// --- Utilitaires réseau / parsing -----------------------------------------
+// --- Classification des échecs --------------------------------------------
 
 /**
- * Échec imputable à l'amont (injoignable, 5xx, asset retiré, réponse illisible),
- * par opposition à un écart de checksum. `--check` le signale en avertissement,
- * `--write` le traite comme fatal. Voir l'en-tête « MODES ET CODES DE SORTIE ».
+ * INDISPONIBILITÉ amont : erreur réseau/DNS/TLS, 5xx, throttling (403/429), flux
+ * coupé, budget global épuisé. Rien n'est su du checksum, mais rien ne prouve
+ * qu'il est faux. `--check` le signale en AVERTISSEMENT (exit 0), `--write` le
+ * traite comme fatal. Voir l'en-tête « MODES ET CODES DE SORTIE ».
  */
 class UpstreamError extends Error {
   constructor(message) {
     super(message);
     this.name = 'UpstreamError';
   }
+}
+
+/**
+ * ÉCHEC DE VÉRIFICATION : l'amont a répondu et sa réponse contredit le dépôt, ou
+ * ne permet pas d'établir la valeur publiée (404, asset renommé/retiré, version
+ * absente de l'index, réponse illisible, checksum publié ≠ artefact rehashé).
+ * Fatal dans LES DEUX modes : ce n'est pas une panne, c'est le Dockerfile ou la
+ * table TOOLS qui est en défaut.
+ */
+class VerificationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'VerificationError';
+  }
+}
+
+// --- Utilitaires réseau / parsing -----------------------------------------
+
+let budgetDeadline = null;
+
+function startBudget(ms) {
+  budgetDeadline = Date.now() + ms;
+}
+
+function remainingBudgetMs() {
+  return budgetDeadline === null ? Number.POSITIVE_INFINITY : budgetDeadline - Date.now();
 }
 
 function sleep(ms) {
@@ -201,16 +261,39 @@ function warn(message) {
   console.warn(`AVERTISSEMENT : ${message}`);
 }
 
-/** GET avec timeout par tentative et retry sur erreur réseau / statut passager. */
-async function httpGet(url) {
+/**
+ * Réponse qui ressemble à du throttling plutôt qu'à un refus définitif : en-tête
+ * `retry-after`, quota GitHub épuisé, ou corps qui le dit. Sert à trancher les 403.
+ */
+function isThrottling(res, body) {
+  if (res.headers.get('retry-after')) return true;
+  const remaining = res.headers.get('x-ratelimit-remaining');
+  if (remaining !== null && Number(remaining) === 0) return true;
+  return THROTTLING_HINT.test(body ?? '');
+}
+
+/**
+ * GET avec timeout par tentative, budget global et retry sur erreur réseau ou
+ * statut passager. Un statut non retentable (404 en tête, 403 sans indice de
+ * throttling) lève une `VerificationError` : l'amont a répondu, et sa réponse dit
+ * que ce qu'on cherche n'existe pas.
+ */
+async function httpGet(url, { timeoutMs = HTTP_TIMEOUT_MS } = {}) {
   let lastError;
   for (let attempt = 1; attempt <= HTTP_ATTEMPTS; attempt += 1) {
+    const remaining = remainingBudgetMs();
+    if (remaining <= 0) {
+      throw new UpstreamError(
+        `budget global de ${Math.round(GLOBAL_BUDGET_MS / 1000)} s épuisé avant ${url}`,
+      );
+    }
+
     let res;
     try {
       res = await fetch(url, {
         redirect: 'follow',
         headers: { 'user-agent': USER_AGENT },
-        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, remaining)),
       });
     } catch (error) {
       lastError = new UpstreamError(
@@ -225,14 +308,26 @@ async function httpGet(url) {
 
     if (res.ok) return res;
 
-    // Corps non consommé : on le libère avant de retenter.
-    await res.body?.cancel().catch(() => {});
-    lastError = new UpstreamError(`HTTP ${res.status} ${res.statusText} sur ${url}`);
-    if (RETRYABLE_STATUS.has(res.status) && attempt < HTTP_ATTEMPTS) {
-      await sleep(HTTP_RETRY_DELAY_MS * attempt);
-      continue;
+    // Corps d'erreur : lu (et non simplement annulé) parce qu'il sert à
+    // distinguer un throttling d'un refus définitif, et à enrichir le message.
+    const errorBody = await res.text().catch(() => '');
+
+    if (RETRYABLE_STATUS.has(res.status) || isThrottling(res, errorBody)) {
+      lastError = new UpstreamError(`HTTP ${res.status} ${res.statusText} sur ${url}`);
+      if (attempt < HTTP_ATTEMPTS) {
+        await sleep(HTTP_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw lastError;
     }
-    throw lastError;
+
+    throw new VerificationError(
+      `HTTP ${res.status} ${res.statusText} sur ${url}. L'amont a répondu et refuse ` +
+        "cette URL : version inexistante, asset renommé ou retiré. Ce n'est pas une " +
+        'indisponibilité passagère (aucun indice de throttling dans la réponse) : ' +
+        'corriger la version épinglée du Dockerfile ou la table TOOLS de ce script.' +
+        (errorBody ? `\nDébut de la réponse : ${errorBody.slice(0, 200)}` : ''),
+    );
   }
   throw lastError;
 }
@@ -249,24 +344,37 @@ function parseJson(body) {
   }
 }
 
-/** SHA-256 calculé en flux : l'archive Go fait 70 Mo, on ne la bufferise pas. */
+/**
+ * SHA-256 calculé en flux : l'archive Go fait 70 Mo, on ne la bufferise pas.
+ * La coupure de flux se produit hors de `httpGet`, donc la boucle de retry est
+ * ici (sinon un flux interrompu ne serait jamais retenté).
+ */
 async function computeSha256(url) {
-  const res = await httpGet(url);
-  if (!res.body) {
-    throw new UpstreamError(`Réponse sans corps pour ${url}`);
-  }
-  const hash = createHash('sha256');
-  try {
-    for await (const chunk of Readable.fromWeb(res.body)) {
-      hash.update(chunk);
+  let lastError;
+  for (let attempt = 1; attempt <= HTTP_ATTEMPTS; attempt += 1) {
+    const res = await httpGet(url, { timeoutMs: ARTIFACT_TIMEOUT_MS });
+    if (!res.body) {
+      throw new UpstreamError(`Réponse sans corps pour ${url}`);
     }
-  } catch (error) {
-    // Flux coupé en cours de route : amont, pas écart de checksum.
-    throw new UpstreamError(
-      `Téléchargement interrompu pour ${url} (${error instanceof Error ? error.message : error})`,
-    );
+    const hash = createHash('sha256');
+    try {
+      for await (const chunk of Readable.fromWeb(res.body)) {
+        hash.update(chunk);
+      }
+      return hash.digest('hex');
+    } catch (error) {
+      // Flux coupé en cours de route : indisponibilité, pas écart de checksum.
+      lastError = new UpstreamError(
+        `Téléchargement interrompu pour ${url} (${error instanceof Error ? error.message : error})`,
+      );
+      if (attempt < HTTP_ATTEMPTS) {
+        await sleep(HTTP_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw lastError;
+    }
   }
-  return hash.digest('hex');
+  throw lastError;
 }
 
 // --- Dockerfile ------------------------------------------------------------
@@ -312,10 +420,55 @@ function parseDockerfile(content, tools) {
   return parsed;
 }
 
-/** URLs d'artefacts (avec `${<OUTIL>_VERSION}` non substitué) lues dans le Dockerfile. */
+/**
+ * Instructions `RUN` du Dockerfile, une entrée par instruction LOGIQUE
+ * (continuations `\` recollées), lignes de commentaire exclues. Le recroisement
+ * d'URL ne doit voir que du code : un commentaire citant l'URL attendue ne doit
+ * pas pouvoir valider un `RUN` qui télécharge autre chose.
+ */
+function dockerfileRunInstructions(content) {
+  const instructions = [];
+  let current = null;
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    // Un commentaire peut apparaître AU MILIEU d'une continuation : il n'est
+    // jamais du code, on le saute sans clore l'instruction en cours.
+    if (line.startsWith('#')) continue;
+    if (current === null) {
+      if (!/^RUN\s/.test(line)) continue;
+      current = [line];
+    } else {
+      current.push(line);
+    }
+    if (!line.endsWith('\\')) {
+      instructions.push(current.join('\n'));
+      current = null;
+    }
+  }
+  if (current !== null) instructions.push(current.join('\n'));
+  return instructions;
+}
+
+// `\S*` avale la ponctuation collée à l'URL : guillemets, parenthèse ou virgule
+// fermantes, antislash de continuation. On la retire pour que le message d'erreur
+// ne compare pas deux URLs visuellement identiques.
+const URL_TRAILING_JUNK = /["'`,;<>()[\]{}\\]+$/;
+
+/**
+ * URLs d'artefacts (avec `${<OUTIL>_VERSION}` non substitué) lues dans les
+ * instructions `RUN` qui vérifient `${<OUTIL>_SHA256}` — donc dans le `RUN` qui
+ * télécharge réellement l'artefact couvert par ce checksum, et nulle part ailleurs.
+ */
 function dockerfileArtifactUrls(content, prefix) {
   const re = new RegExp(`https://\\S*\\$\\{${prefix}_VERSION\\}\\S*`, 'g');
-  return [...content.matchAll(re)].map((m) => m[0]);
+  const urls = new Set();
+  for (const run of dockerfileRunInstructions(content)) {
+    if (!run.includes(`\${${prefix}_SHA256}`)) continue;
+    for (const match of run.matchAll(re)) {
+      urls.add(match[0].replace(URL_TRAILING_JUNK, ''));
+    }
+  }
+  return [...urls];
 }
 
 /**
@@ -331,9 +484,10 @@ function assertArtifactUrlMatchesDockerfile(content, tool) {
   throw new Error(
     `URL d'artefact divergente pour ${tool.prefix} (${tool.label}) :\n` +
       `  table TOOLS du script : ${expected}\n` +
-      `  Dockerfile            : ${found.length > 0 ? found.join('\n                          ') : '(aucune URL trouvée)'}\n` +
+      `  Dockerfile            : ${found.length > 0 ? found.join('\n                          ') : `(aucune URL dans le RUN qui vérifie \${${tool.prefix}_SHA256})`}\n` +
       'Le script recalculerait le checksum d\'un autre fichier que celui que le ' +
-      'build télécharge. Aligner la table TOOLS sur le `RUN curl` du Dockerfile.',
+      'build télécharge. Aligner la table TOOLS sur le `RUN curl` du Dockerfile ' +
+      '(seules les lignes de code du `RUN` correspondant sont lues, pas les commentaires).',
   );
 }
 
@@ -348,14 +502,23 @@ function rewriteSha(content, prefix, value) {
 
 // --- Résolution + contre-vérification -------------------------------------
 
-/** Checksum publié en amont pour cette version. Échec = UpstreamError. */
+/**
+ * Checksum publié en amont pour cette version.
+ * Indisponibilité -> UpstreamError (levée par httpGet). Réponse lisible dont on
+ * n'extrait pas 64 caractères hexadécimaux -> VerificationError : la valeur
+ * publiée n'a pas pu être établie, ce qui est un échec de vérification et non
+ * une panne d'amont (version absente de l'index, asset renommé, réponse HTML…).
+ */
 async function fetchPublishedChecksum(tool, version) {
   const { url, body, value } = await tool.upstream(version, tool);
   if (typeof value !== 'string' || !HEX64.test(value)) {
-    throw new UpstreamError(
-      `Checksum amont invalide pour ${tool.prefix} ${version} : ` +
-        `la source ${url} n'a pas fourni 64 caractères hexadécimaux ` +
+    throw new VerificationError(
+      `Checksum amont introuvable pour ${tool.prefix} ${version} : ` +
+        `la source ${url} a répondu, mais n'a pas fourni 64 caractères hexadécimaux ` +
         `(valeur extraite : ${JSON.stringify(value)}).\n` +
+        'Causes usuelles : version épinglée absente en amont, asset renommé ou ' +
+        'retiré, format de la source amont modifié -> corriger la version du ' +
+        'Dockerfile ou la table TOOLS de ce script.\n' +
         `Début de la réponse (200 premiers caractères) :\n${String(body).slice(0, 200)}`,
     );
   }
@@ -364,15 +527,16 @@ async function fetchPublishedChecksum(tool, version) {
 
 /**
  * Contre-vérification S-01 : retélécharge l'artefact et recalcule son SHA-256.
- * Appelée dès que la valeur à retenir diffère de celle commitée, donc toujours
- * avant une écriture. Une divergence ici n'est PAS un simple problème d'amont :
- * c'est fatal dans les deux modes.
+ * Renvoie la valeur recalculée. Une divergence publié/recalculé n'est PAS un
+ * problème d'amont : c'est fatal dans les deux modes (VerificationError).
+ * Appelée avant toute écriture, et pour ARBITRER un écart déjà détecté — dans ce
+ * dernier cas elle ne décide QUE le message, pas le code de sortie (voir main).
  */
 async function verifyAgainstArtifact(tool, version, published, publishedUrl) {
   const artifactUrl = tool.artifact(version);
   const computed = await computeSha256(artifactUrl);
   if (computed !== published) {
-    throw new Error(
+    throw new VerificationError(
       `Contre-vérification ÉCHOUÉE pour ${tool.prefix} ${version} (${tool.label}).\n` +
         `  artefact          : ${artifactUrl}\n` +
         `  checksum publié   : ${published} (${publishedUrl})\n` +
@@ -380,7 +544,7 @@ async function verifyAgainstArtifact(tool, version, published, publishedUrl) {
         'Aucune valeur n\'est écrite : les deux sources doivent concorder (S-01).',
     );
   }
-  return artifactUrl;
+  return computed;
 }
 
 // --- CLI -------------------------------------------------------------------
@@ -391,26 +555,34 @@ Synchronise les ARG <OUTIL>_SHA256 du Dockerfile avec les ARG <OUTIL>_VERSION,
 en croisant le checksum publié en amont et un SHA-256 recalculé localement.
 
 Options :
-  --check          (défaut) ne modifie rien, sort en 1 si un checksum commité
-                   diffère du checksum publié en amont. Un amont injoignable
-                   (5xx, asset retiré, throttling) est retenté puis signalé en
-                   AVERTISSEMENT, sans faire échouer la commande.
-  --write          réécrit la ligne ARG <OUTIL>_SHA256 des outils concernés.
-                   Tout échec est fatal et n'écrit rien.
-  --only=<outil>   limite le traitement à un outil. Accepte gws, gh, kubectl,
-                   devin, go ainsi que les depName Renovate (googleworkspace/cli,
-                   cli/cli, kubernetes/kubernetes, devin-cli, golang). Une valeur
-                   inconnue sort en 0 sans rien écrire.
-  --help           affiche cette aide
+  --check             (défaut) ne modifie rien. Sort 1 si un checksum commité
+                      diffère du checksum publié en amont, ou si la valeur
+                      publiée n'a pas pu être établie (404, 403 sur objet absent,
+                      asset renommé, version absente de l'index). Seule une
+                      indisponibilité amont (réseau, 5xx, throttling) est retentée
+                      puis signalée en AVERTISSEMENT, sans faire échouer la commande.
+  --write             réécrit la ligne ARG <OUTIL>_SHA256 des outils concernés.
+                      Tout échec est fatal et n'écrit rien.
+  --only=<outil>      limite le traitement à un outil. Accepte gws, gh, kubectl,
+                      devin, go ainsi que les depName Renovate (googleworkspace/cli,
+                      cli/cli, kubernetes/kubernetes, devin-cli, golang). Une valeur
+                      inconnue sort en 0 sans rien écrire.
+  --verify-artifacts  retélécharge et rehashe l'artefact de CHAQUE outil, même
+                      quand le checksum commité est déjà à jour (~140 Mo). Sert à
+                      rejouer la contre-vérification S-01 que le cache de couches
+                      Docker ne rejoue pas sur les PRs : utilisé sur push: main,
+                      pas sur chaque PR.
+  --help              affiche cette aide
 
 Outils gérés : ${TOOLS.map((t) => t.prefix).join(', ')}
 `;
 
 function parseArgs(argv) {
-  const options = { mode: 'check', only: null, help: false };
+  const options = { mode: 'check', only: null, help: false, verifyArtifacts: false };
   for (const arg of argv) {
     if (arg === '--check') options.mode = 'check';
     else if (arg === '--write') options.mode = 'write';
+    else if (arg === '--verify-artifacts') options.verifyArtifacts = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg.startsWith('--only=')) options.only = arg.slice('--only='.length).trim();
     else throw new Error(`Option inconnue : ${arg}\n\n${USAGE}`);
@@ -444,10 +616,14 @@ async function main() {
     return 0;
   }
 
+  startBudget(GLOBAL_BUDGET_MS);
+
   let content = readDockerfile();
   const state = parseDockerfile(content, selected);
+  const isCheck = options.mode === 'check';
 
   let mismatches = 0;
+  let failures = 0;
   let rewritten = 0;
   let unreachable = 0;
 
@@ -463,45 +639,92 @@ async function main() {
     try {
       published = await fetchPublishedChecksum(tool, version);
     } catch (error) {
-      if (options.mode === 'check' && error instanceof UpstreamError) {
+      if (isCheck && error instanceof UpstreamError) {
         unreachable += 1;
-        console.log(`${label} AMONT KO (checksum non vérifié)`);
+        console.log(`${label} AMONT INDISPONIBLE (checksum non vérifié)`);
         warn(`${tool.prefix} ${version} : ${error.message}`);
+        continue;
+      }
+      // VerificationError : l'amont a répondu et sa réponse ne permet pas de
+      // valider le pin. Fatal en --write, échec (exit 1) en --check — sans
+      // interrompre les autres outils, pour un rapport complet.
+      if (isCheck && error instanceof VerificationError) {
+        failures += 1;
+        console.log(`${label} ÉCHEC DE VÉRIFICATION`);
+        console.error(error.message);
         continue;
       }
       throw error;
     }
 
     if (published.value === committed) {
-      // Pas de retéléchargement : le `sha256sum -c` du Dockerfile recalcule
-      // déjà le hash de l'artefact réellement téléchargé, à chaque build.
-      console.log(`${label} OK       ${published.value}`);
+      if (!options.verifyArtifacts) {
+        // Pas de retéléchargement : voir l'en-tête (le `sha256sum -c` du build
+        // ne rehashe que si la couche est invalidée, d'où --verify-artifacts).
+        console.log(`${label} OK       ${published.value}`);
+        continue;
+      }
+      try {
+        await verifyAgainstArtifact(tool, version, published.value, published.url);
+        console.log(`${label} OK       ${published.value} (artefact rehashé)`);
+      } catch (error) {
+        if (isCheck && error instanceof UpstreamError) {
+          unreachable += 1;
+          console.log(`${label} OK       ${published.value} (artefact non rehashé)`);
+          warn(`${tool.prefix} ${version} : ${error.message}`);
+          continue;
+        }
+        if (isCheck && error instanceof VerificationError) {
+          // Publié == commité mais l'artefact hashe autrement : incohérence amont.
+          failures += 1;
+          console.log(`${label} ÉCHEC DE VÉRIFICATION (artefact ≠ checksum publié)`);
+          console.error(error.message);
+          continue;
+        }
+        throw error;
+      }
       continue;
     }
 
-    // Écart : on tranche avec l'artefact avant d'échouer ou d'écrire (S-01).
+    // ÉCART CERTAIN : le checksum commité ne correspond pas à ce que l'éditeur
+    // publie pour cette version. On le compte AVANT l'arbitrage : l'artefact ne
+    // sert qu'à dire lequel des deux a raison (donc à enrichir le message et à
+    // autoriser une écriture), jamais à annuler l'échec.
+    mismatches += 1;
+    console.log(`${label} ÉCART`);
+    console.log(`  - Dockerfile : ${committed}`);
+    console.log(`  + amont      : ${published.value} (${published.url})`);
+
+    let arbitrated = false;
     try {
       await verifyAgainstArtifact(tool, version, published.value, published.url);
+      arbitrated = true;
+      console.log('  = artefact rehashé : concorde avec le checksum publié');
     } catch (error) {
-      if (options.mode === 'check' && error instanceof UpstreamError) {
-        unreachable += 1;
-        console.log(`${label} AMONT KO (écart non tranché)`);
-        warn(`${tool.prefix} ${version} : ${error.message}`);
-        continue;
+      if (isCheck && error instanceof UpstreamError) {
+        // L'écart reste établi : on sort 1 quand même, seul le message est dégradé.
+        warn(
+          `${tool.prefix} ${version} : écart CONFIRMÉ (commité ≠ publié) mais artefact ` +
+            `non rehashé, donc non arbitré (${error.message}). L'écart fait échouer la ` +
+            'garde ; relancer `--write` une fois l\'amont joignable.',
+        );
+      } else if (isCheck && error instanceof VerificationError) {
+        // L'artefact contredit le checksum publié : anomalie amont EN PLUS de
+        // l'écart. Les deux sont rapportées, la garde sort 1 dans tous les cas.
+        failures += 1;
+        console.error(error.message);
+      } else {
+        throw error;
       }
-      throw error;
     }
 
-    mismatches += 1;
     if (options.mode === 'write') {
+      // Inatteignable sans arbitrage : en --write toute erreur ci-dessus est fatale.
+      if (!arbitrated) throw new Error(`Arbitrage manquant pour ${tool.prefix}`);
       content = rewriteSha(content, tool.prefix, published.value);
       rewritten += 1;
-      console.log(`${label} MISMATCH réécrit`);
-    } else {
-      console.log(`${label} MISMATCH`);
+      console.log(`${label} ÉCART réécrit`);
     }
-    console.log(`  - Dockerfile : ${committed}`);
-    console.log(`  + amont      : ${published.value}`);
   }
 
   if (rewritten > 0) {
@@ -519,14 +742,15 @@ async function main() {
 
   console.log(
     `Résumé : ${selected.length} outil(s) vérifié(s), ${mismatches} écart(s), ` +
-      `${unreachable} amont(s) injoignable(s).` +
+      `${failures} échec(s) de vérification, ${unreachable} amont(s) indisponible(s).` +
       (mismatches > 0
         ? ' Relancer `node scripts/sync-download-checksums.mjs --write` pour corriger.'
         : ''),
   );
-  // Un amont injoignable ne fait pas échouer la garde : l'image reste
-  // construisible et le `sha256sum -c` du build reste le filet final.
-  return mismatches > 0 ? 1 : 0;
+  // Un écart ou un checksum publié non établi font échouer la garde. Seule une
+  // indisponibilité amont ne la fait pas échouer : l'image reste construisible et
+  // le `sha256sum -c` du build reste le filet final quand la couche est rejouée.
+  return mismatches > 0 || failures > 0 ? 1 : 0;
 }
 
 try {

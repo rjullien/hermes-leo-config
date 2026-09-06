@@ -47,6 +47,7 @@ bump fait échouer le build. Le délai avant merge automatique reste
 ```bash
 node scripts/sync-download-checksums.mjs --check   # vérifie, sort 1 si un SHA est périmé
 node scripts/sync-download-checksums.mjs --write   # resynchronise les lignes ARG *_SHA256
+node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 5 artefacts
 ```
 
 Le script est **sans aucune dépendance** (Node + bibliothèque standard, ni
@@ -56,15 +57,27 @@ Renovate. Deux garde-fous l'exécutent automatiquement :
 - **Renovate** (`postUpgradeTasks`) le lance sur sa propre branche quand il
   bumpe une version, si bien que version et checksum changent **dans le même
   commit** et restent relisibles dans le diff de la PR ;
-- **la CI** (première étape du job `build-and-verify` de `pr-validation.yml`) le
-  rejoue en mode `--check` sur chaque PR, **avant** le build de l'image.
+- **la CI** (`pr-validation.yml`) le rejoue en mode `--check` sur chaque PR, dans
+  le job requis `build-and-verify` et **avant** l'étape de build de l'image (c'est
+  une étape de ce job, pas un job séparé : un job séparé relié par `needs:`
+  rendrait le check requis *skipped*, donc satisfait, en cas d'échec).
 
 En mode `--check`, le script ne relit que les checksums publiés (5 requêtes, pas
-de retéléchargement des artefacts : le `sha256sum -c` du `Dockerfile` recalcule
-déjà le hash de ce qui est réellement téléchargé) ; il ne retélécharge l'artefact
-que pour trancher un écart. Un amont indisponible est retenté puis signalé en
-**avertissement** : seul un checksum réellement périmé fait rougir la CI, une
-panne amont ne bloque pas les PRs sans rapport.
+de retéléchargement des artefacts) ; il ne rehashe un artefact que pour arbitrer
+un écart, ou sur demande explicite avec `--verify-artifacts`. **Ce que la CI fait
+rougir** : un checksum commité différent du checksum publié, et un checksum publié
+impossible à établir (version absente en amont, asset renommé ou retiré, 404). Une
+**indisponibilité** amont (réseau, 5xx, throttling) est retentée puis signalée en
+**avertissement** sans bloquer : elle ne doit pas rendre `main` non mergeable
+alors que l'image reste construisible.
+
+Nuance sur le raccourci « pas de retéléchargement » : le `sha256sum -c` du
+`Dockerfile` rehashe bien l'archive réellement téléchargée, mais le build de PR
+utilise `cache-from: type=gha`, donc la couche `RUN curl … && sha256sum -c` n'est
+rejouée que lorsque son `ARG` version ou SHA change. Sur une PR qui ne touche pas
+ces lignes, aucun octet d'artefact n'est rehashé. C'est pourquoi la CI passe
+`--verify-artifacts` sur `push: main` : les 5 artefacts (~140 Mo) y sont
+retéléchargés et rehashés, une fois par merge plutôt qu'une fois par PR.
 
 ## Versioning — calver `vYYYY.M.D`
 
@@ -128,10 +141,10 @@ création de la PR. Quand la PR apparaît, le délai de stabilité est déjà sa
 et il ne reste à attendre que `pr-validation` (~4 min).
 
 `pr-validation.yml` vérifie les 5 SHA-256 (cf. §Vérification des téléchargements)
-**dès la première étape** du job `build-and-verify`, avant tout build : un
-checksum périmé fait rougir la PR en moins d'une minute, avec le nom de l'outil et
-les deux valeurs, au lieu d'un `sha256sum -c` opaque au bout du téléchargement de
-70 Mo de Go. Cette garde est volontairement une étape et non un job relié par
+dans le job `build-and-verify`, **avant l'étape de build** (c'est la 3ᵉ étape, après
+le checkout et `setup-node`) : un checksum périmé fait rougir la PR en moins d'une
+minute, avec le nom de l'outil et les deux valeurs, au lieu d'un `sha256sum -c`
+opaque au bout du téléchargement de 70 Mo de Go. Cette garde est volontairement une étape et non un job relié par
 `needs:` : en job séparé, son échec rendait `build-and-verify` *skipped*, et un
 check requis skipped est compté comme satisfait par la branch protection — le
 merge humain redevenait possible sur une PR dont l'image n'a jamais été

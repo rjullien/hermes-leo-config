@@ -18,6 +18,11 @@ permissions:
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
+    # Borne dure du job (le défaut GitHub est de 6 h). La garde checksums qui
+    # précède le build fait du réseau avec retries (3 tentatives, timeout 60 s
+    # par requête) et rehashe les 5 artefacts sur `push: main` ; le script porte
+    # son propre budget global de 10 min, ce cap est le filet au-dessus.
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -36,18 +41,37 @@ jobs:
       # redevenait possible sur une PR dont l'image n'a jamais été construite ni
       # scannée. En étape du job requis, un échec est un échec.
       #
-      # Le mode --check n'interroge que les 5 endpoints de checksum publiés
-      # (quelques requêtes, pas de retéléchargement d'artefact : le
-      # `sha256sum -c` du Dockerfile recalcule déjà le hash de ce qui est
-      # réellement téléchargé, quelques étapes plus bas). Un amont injoignable
-      # produit un avertissement, pas un échec — voir l'en-tête du script.
+      # SUR UNE PR : --check n'interroge que les 5 endpoints de checksum publiés
+      # (5 petites requêtes, aucun artefact retéléchargé). Le `sha256sum -c` du
+      # Dockerfile rehashe bien l'archive réellement téléchargée, MAIS le build
+      # ci-dessous utilise `cache-from: type=gha` : la couche
+      # `RUN curl … && sha256sum -c` n'est rejouée que si son `ARG` version ou
+      # SHA change. Sur une PR qui ne touche pas ces lignes, aucun octet
+      # d'artefact n'est donc rehashé, ni par la garde ni par le build.
+      #
+      # SUR `push: main` : --verify-artifacts rehashe les 5 artefacts (~140 Mo)
+      # pour rejouer la contre-vérification S-01 que le cache de couches ne
+      # rejoue pas. Un run par merge, pas un par PR.
+      #
+      # Un écart commité ≠ publié, ou un checksum publié impossible à établir
+      # (404, asset renommé), fait échouer cette étape. Seule une indisponibilité
+      # amont (réseau, 5xx, throttling) produit un avertissement — voir l'en-tête
+      # du script.
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
 
       - name: Vérifier les SHA-256 des 5 téléchargements
-        run: node scripts/sync-download-checksums.mjs --check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            node scripts/sync-download-checksums.mjs --check
+          else
+            node scripts/sync-download-checksums.mjs --check --verify-artifacts
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
