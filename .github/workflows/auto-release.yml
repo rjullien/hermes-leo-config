@@ -89,7 +89,11 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           NOTES: ${{ steps.notes.outputs.NOTES }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT requis : une release créée avec le GITHUB_TOKEN par défaut ne
+          # déclenche PAS d'autre workflow (protection anti-récursion GitHub), donc
+          # build.yml (on: release: published) ne tournerait jamais et l'image ne
+          # serait pas poussée sur GHCR. Le RENOVATE_TOKEN (PAT) ré-émet l'event.
+          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
         run: |
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
