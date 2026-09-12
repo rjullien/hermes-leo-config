@@ -104,11 +104,18 @@ gh release create v2026.8.31 \
   --notes "Image custom hermes-leo : hermes-agent + gws/gh/kubectl"
 ```
 
-Le workflow `build.yml` pousse les tags **calver + `latest` uniquement depuis
-une release** (`release: published`). Un `workflow_dispatch` manuel ne produit
-que le tag `sha-<commit>` : il ne peut donc pas déplacer `latest` hors du flux de
-release (F-02). Déployer par **digest** dans vps-infra reste la référence
-immuable — `latest`/`vX.Y` sont mutables par construction.
+Le build + push est factorisé dans un workflow réutilisable
+(`build-image.yml`, `workflow_call`) appelé par deux chemins : `build.yml` quand
+une release est **publiée manuellement** (`release: published`), et
+`auto-release.yml` **dans le même run** juste après avoir créé la release
+automatique (une release créée depuis un workflow ne ré-émet pas l'event
+`release: published` — protection anti-récursion de GitHub — donc on ne peut pas
+s'y fier sur ce chemin). Les tags **calver + `latest`** sont poussés sur ces
+deux chemins release (input `publish_release_tags: true`). Un `workflow_dispatch`
+manuel sur `build.yml` ne produit que le tag `sha-<commit>` : il ne peut donc pas
+déplacer `latest` hors du flux de release (F-02). Déployer par **digest** dans
+vps-infra reste la référence immuable — `latest`/`vX.Y` sont mutables par
+construction.
 
 **Réglages serveur recommandés (hors code, F-02) :** activer la branch
 protection sur `main` (checks requis, cf. F-01) et l'immutabilité/rétention du
