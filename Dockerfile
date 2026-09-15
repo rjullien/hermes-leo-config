@@ -30,6 +30,16 @@ FROM nousresearch/hermes-agent:v2026.8.31@sha256:64923faeae267792bf9bf87fe3b4c48
 # extraction. Renovate maintient version + digest (voir renovate.json).
 USER root
 
+# Correctifs Debian (porte Trivy CRITICAL) : l'image de base est digests-épinglée
+# et peut donc rester en retard sur les DSA/security de trixie. Sans cette
+# couche, la CI échoue sur des CRITICAL OS « Status: fixed » (glib, mbedtls,
+# perl…) alors que `apt` peut les appliquer ici. On ne les met PAS dans
+# `.trivyignore` — la porte doit rester capable d'échouer sur une régression
+# introduite par ce dépôt. Reliquats vraiment non patchables via apt → S-03.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
 # Remplace himalaya pour tout le Gmail automatisé (API native, OAuth standard)
 # Télécharge dans un fichier temporaire, vérifie le SHA-256, PUIS extrait.

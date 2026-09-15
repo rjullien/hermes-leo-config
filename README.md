@@ -17,6 +17,12 @@ outils agents absents de la base.
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
 > de vérité). En cas de doute, `Dockerfile` fait foi.
 
+En plus des binaires, le `Dockerfile` applique en `USER root` un
+`apt-get update && apt-get upgrade` avant les installs d'outils : la base est
+épinglée par digest et peut donc prendre du retard sur les correctifs Debian
+trixie ; cette couche les tire dans notre image pour garder la porte Trivy
+CRITICAL (corrigibles) verte sans élargir `.trivyignore`.
+
 ## Vérification des téléchargements (SHA-256)
 
 Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
