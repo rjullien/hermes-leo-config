@@ -5,64 +5,28 @@ on:
     types: [published]
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/hermes-leo-custom
+# Ce workflow ne fait que déléguer au workflow réutilisable build-image.yml.
+# Il couvre deux chemins d'entrée :
+#   - release: published -> une release publiée MANUELLEMENT par un humain
+#     déclenche bien un nouveau run (pas de protection anti-récursion), donc on
+#     construit avec les tags calver + latest (publish_release_tags: true).
+#   - workflow_dispatch -> build manuel : uniquement le tag sha-<commit>
+#     (publish_release_tags: false), pour ne pas déplacer `latest` (F-02).
+# Les releases créées AUTOMATIQUEMENT par auto-release.yml ne passent PAS ici
+# (leur event release: published est supprimé par la protection anti-récursion
+# de GitHub) : auto-release.yml appelle directement build-image.yml dans son
+# propre run.
 
 jobs:
   build:
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # F-02 — `latest` n'est publié QUE depuis une release (event=release).
-          # Un `workflow_dispatch` manuel ne produit que le tag sha-<commit>, il
-          # ne peut donc plus déplacer silencieusement `latest`. Les tags calver
-          # (vX.Y.Z, vX.Y) ne sont émis que par une release, comme documenté.
-          tags: |
-            type=semver,pattern=v{{version}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern=v{{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-            type=sha,prefix=sha-
-
-      - name: Build and push Docker image
-        id: push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-
-      - name: Generate artifact attestation
-        if: github.repository_visibility == 'public'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+    uses: ./.github/workflows/build-image.yml
+    with:
+      # Une release fournit github.ref = refs/tags/<tag>, donc pas besoin de
+      # passer release_tag : metadata-action parse le tag depuis la ref.
+      publish_release_tags: ${{ github.event_name == 'release' }}
+    secrets: inherit
