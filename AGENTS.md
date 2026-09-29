@@ -17,7 +17,7 @@ les ConfigMaps (vps-infra), pas dans l'image.
    va dans **Infisical** (projet `infrastructure`, env `prod`,
    chemin `/agents/hermes-leo`).
 2. **Ne pas modifier l'image de base** (`FROM nousresearch/hermes-agent`) sans
-   raison critique — elle est trackée par Renovate (review manuelle 7j).
+   raison critique — elle est trackée par Renovate (délai 7j puis automerge).
 3. **Binaire gws = glibc** (`-unknown-linux-gnu`), PAS musl (base debian).
 4. **Ne pas retirer un outil** tant que le pod l'utilise (check vps-infra +
    skills + crons avant). Exemple : himalaya a été retiré car gws le remplace
@@ -99,9 +99,14 @@ Image Updater prend ensuite le relais comme ci-dessus.
 - Renovate tourne **self-hosted via GitHub Actions** (`renovate.yml`), PAS
   l'app publique. Secret `RENOVATE_TOKEN` requis (PAT, car `GITHUB_TOKEN` ne
   suffit pas → `Integration unauthorized`).
-- **Tout est en automerge** (binaires 3j, actions, hermes-agent 7j) : la
-  **review humaine se fait au niveau vps-infra** (renovate de Baptiste) quand
-  l'image est déployée — pas ici. Ne pas re-désactiver l'automerge.
+- **Tout est en automerge** (binaires 3j, actions, hermes-agent 7j) et le
+  déploiement aussi (ArgoCD Image Updater écrit direct sur `main` de
+  vps-infra) : **il n'y a aucune review humaine** entre un bump Renovate et le
+  pod. **Risque accepté** (décision René, 28/09/2026). Les garde-fous sont :
+  `minimumReleaseAge` (3j binaires / 7j hermes-agent), les checksums SHA-256
+  vérifiés au build, le smoke test et la porte Trivy CRITICAL de
+  `pr-validation`. Ne pas re-désactiver l'automerge : si le compromis doit
+  changer, la manette est `minimumReleaseAge`.
 - Ne PAS remettre `RENOVATE_AUTOMERGE=false` dans le workflow : ça écrase
   `renovate.json`.
 - Dashboard des updates : issue #1 « Dependency Dashboard ».
@@ -270,8 +275,8 @@ relisible dans le diff de la PR, et **rejouée à chaque build** contre le CDN
 (donc une archive substituée après coup fait échouer le build). Comme la règle
 qui porte `postUpgradeTasks` porte aussi `automerge: true`, le seul délai humain
 restant sur ce chemin est `minimumReleaseAge` (3 jours pour les binaires) : c'est
-un choix assumé ici, la review humaine se faisant au niveau vps-infra quand
-l'image est déployée. Si ce compromis doit changer un jour, la bonne manette est
+un choix assumé ici : il n'y a pas de review humaine en aval non plus (Image
+Updater déploie automatiquement, risque accepté le 28/09/2026). Si ce compromis doit changer un jour, la bonne manette est
 `minimumReleaseAge`, pas la désactivation de l'automerge (cf. plus haut).
 
 ## 🧪 Vérification après build
