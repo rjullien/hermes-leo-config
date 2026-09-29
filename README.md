@@ -136,15 +136,17 @@ Renovate publique). Config : `renovate.json`.
 |---|---|---|
 | Binaires (gws, gh, kubectl) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
-| Image de base `hermes-agent` | 7 jours | ✅ automerge (review humaine = renovate vps-infra) |
+| Image de base `hermes-agent` | 7 jours | ✅ automerge |
 
 **Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
 dépendance** (gws, gh, kubectl, devin, go, hermes-agent, Actions). Il n'y a plus
 d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
-donc pas fusionnée automatiquement. La **vérification humaine se fait au niveau
-vps-infra** (le renovate de Baptiste) quand l'image est référencée dans le
-deployment. Le délai (3j binaires / 7j hermes-agent) laisse le temps de détecter
-une release compromise avant merge.
+donc pas fusionnée automatiquement. **Il n'y a pas de vérification humaine en
+aval** : ArgoCD Image Updater déploie automatiquement chaque nouvelle release
+(write-back direct sur `main` de vps-infra). C'est un **risque accepté**. Les
+garde-fous sont le délai (3j binaires / 7j hermes-agent), qui laisse le temps de
+détecter une release compromise avant merge, les checksums SHA-256 rejoués au
+build, le smoke test et la porte Trivy CRITICAL.
 
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
