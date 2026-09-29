@@ -60,17 +60,39 @@ les ConfigMaps (vps-infra), pas dans l'image.
 
 ## 🔄 Workflow de mise à jour d'un outil
 
-1. Modifier la version dans le Dockerfile (ou laisser Renovate proposer).
-2. Marquer une **release GitHub calver** :
-   ```bash
-   gh release create v2026.8.31 --repo rjullien/hermes-leo-config \
-     --title "hermes-leo-config v2026.8.31" --notes "..."
-   ```
-   → `build.yml` (déclenché sur `release: published`) build + push les tags
-   `vYYYY.M.D`, `vYYYY.M`, `latest`, `sha-<commit>`.
-3. Mettre à jour le tag dans **vps-infra**
-   (`workloads/agents/hermes-leo/hermes-leo-deployment.yaml`) → PR vers
-   `BaptTF/vps-infra` → ArgoCD déploie.
+**Tout est automatique, de bout en bout. Aucune étape manuelle, aucune PR vps-infra.**
+
+1. Renovate (ou un humain) modifie un `ARG <OUTIL>_VERSION=` dans le
+   Dockerfile → merge sur `main`.
+2. `auto-release.yml` (push sur `main`, `paths: Dockerfile`) compare les lignes
+   `ARG *_VERSION=` avec la dernière release :
+   - si une version a changé → crée la release calver `vYYYY.M.D[.N]` **et**
+     build/push dans le même run (via `build-image.yml`) les tags `vYYYY.M.D`,
+     `vYYYY.M`, `latest`, `sha-<commit>` ;
+   - sinon (commentaire, checksum seul) → rien.
+3. **ArgoCD Image Updater** (CR `hermes-leo-updater` dans
+   `BaptTF/vps-infra/system/argocd-image-updater/crs/`, stratégie
+   `newest-build`) détecte le nouveau tag et **écrit directement sur `main`**
+   de vps-infra, dans `workloads/agents/.argocd-source-agents.yaml`
+   (commit `argocd-image-updater: build: automatic update of agents`, ~3 min
+   après la release) → ArgoCD synchronise le pod.
+
+⚠️ **Ne pas** modifier le tag dans `hermes-leo-deployment.yaml` ni ouvrir de
+PR vps-infra pour déployer : le tag du deployment n'est qu'une valeur par
+défaut, **l'override `.argocd-source-agents.yaml` fait foi**. Pour savoir
+quelle version tourne, lire ce fichier (pas le deployment).
+
+**Pas de release attendue** quand un merge ne touche que `.github/`, la doc
+ou `.trivyignore` : l'image serait identique (« une release calver = un
+build »). Ce n'est pas une panne.
+
+Release manuelle possible si besoin (rebuild forcé) :
+```bash
+gh release create vYYYY.M.D --repo rjullien/hermes-leo-config \
+  --title "hermes-leo-config vYYYY.M.D" --notes "..."
+```
+→ `build.yml` (`release: published`) build + push les tags calver + `latest`.
+Image Updater prend ensuite le relais comme ci-dessus.
 
 ## 🤖 Renovate — ce que l'agent doit savoir
 
