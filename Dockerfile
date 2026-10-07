@@ -77,8 +77,8 @@ RUN curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin
 # Auth: `devin auth login` (device flow) ou `--force-manual-token-flow` (pod headless)
 # Credentials → ~/.local/share/devin/credentials.toml (PVC /opt/data, persistant)
 # renovate: datasource=custom.devin-cli depName=devin-cli
-ARG DEVIN_VERSION=3000.6.7
-ARG DEVIN_SHA256=f88edacea692553910d72f275515bd0b52b5d271d55250981b0c41011142d27b
+ARG DEVIN_VERSION=3000.11.3
+ARG DEVIN_SHA256=83b3b113c01bf2a3e9e100db08d77e6b086806a7754f091e20831bdfe215157e
 RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}/devin-${DEVIN_VERSION}-x86_64-unknown-linux.tar.gz \
     && echo "${DEVIN_SHA256}  /tmp/devin.tar.gz" | sha256sum -c - \
     && tar xz -C /tmp -f /tmp/devin.tar.gz \
