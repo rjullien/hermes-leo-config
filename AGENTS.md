@@ -65,10 +65,11 @@ les ConfigMaps (vps-infra), pas dans l'image.
 1. Renovate (ou un humain) modifie un `ARG <OUTIL>_VERSION=` dans le
    Dockerfile → merge sur `main`.
 2. `auto-release.yml` (push sur `main`, `paths: Dockerfile`) compare les lignes
-   `ARG *_VERSION=` avec la dernière release :
-   - si une version a changé → crée la release calver `vYYYY.M.D[.N]` **et**
-     build/push dans le même run (via `build-image.yml`) les tags `vYYYY.M.D`,
-     `vYYYY.M`, `latest`, `sha-<commit>` ;
+   `ARG *_VERSION=` **et la ligne `FROM` (image de base)** avec la dernière
+   release :
+   - si une version d'outil **ou l'image de base** a changé → crée la release
+     calver `vYYYY.M.D[.N]` **et** build/push dans le même run (via
+     `build-image.yml`) les tags `vYYYY.M.D`, `vYYYY.M`, `latest`, `sha-<commit>` ;
    - sinon (commentaire, checksum seul) → rien.
 3. **ArgoCD Image Updater** (CR `hermes-leo-updater` dans
    `BaptTF/vps-infra/system/argocd-image-updater/crs/`, stratégie
