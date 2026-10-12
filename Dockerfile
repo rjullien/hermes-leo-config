@@ -20,7 +20,7 @@
 # ⚠️ ARCHITECTURE (P-03) : image linux/amd64 UNIQUEMENT. Les URLs ci-dessous
 # ciblent x86_64/amd64 et build.yml ne construit que linux/amd64. Pour arm64,
 # paramétrer via TARGETARCH et valider les 5 binaires (voir README §Architecture).
-FROM nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7
+FROM nousresearch/hermes-agent:v0.21.6@sha256:55e192fba0cd4fde61142abbff5adeacff40efdb482ccd0ff877924bd274f909
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
@@ -99,6 +99,18 @@ RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.t
     && rm -f /tmp/go.tar.gz \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+# --- hermes sur le PATH « standard » (compat K8s / PATH écrasé) ---
+# Depuis v0.21.6, main-wrapper.sh et dashboard/run n'activent plus le venv
+# (`. /opt/hermes/.venv/bin/activate` retiré) et s'appuient uniquement sur
+# `ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:…` du Dockerfile amont.
+# Kubernetes (et tout `docker run -e PATH=…`) remplace ce PATH par un PATH
+# classique sans /opt/hermes/* : `s6-setuidgid` → `s6-applyuidgid` échoue
+# alors avec `unable to exec hermes: No such file or directory` (exit 127),
+# le gateway ne démarre jamais. Le shim amont (`/opt/hermes/bin/hermes`)
+# ré-exécute le binaire venv par chemin absolu ; un symlink dans
+# /usr/local/bin suffit donc à le rendre trouvable même si PATH est écrasé.
+RUN ln -sf /opt/hermes/bin/hermes /usr/local/bin/hermes
 
 # Les scripts/venvs/skills restent sur le PVC (/opt/data) et les ConfigMaps —
 # l'image ne porte que les binaires système/tools.
