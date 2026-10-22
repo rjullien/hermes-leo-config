@@ -307,6 +307,7 @@ jobs:
   publish:
     needs: rebuild
     if: needs.rebuild.outputs.changed == 'true'
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
