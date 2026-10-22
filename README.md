@@ -23,6 +23,11 @@ En plus des binaires, le `Dockerfile` applique en `USER root` un
 trixie ; cette couche les tire dans notre image pour garder la porte Trivy
 CRITICAL (corrigibles) verte sans élargir `.trivyignore`.
 
+Même logique pour le venv Python hérité de la base : `certifi` et `Pillow`
+sont upgradés via pip (versions épinglées dans le `Dockerfile`) quand la base
+reste en retard sur les advisories PyPI CRITICAL corrigibles — sans passer
+par `.trivyignore`.
+
 Il crée aussi un symlink `/usr/local/bin/hermes` → `/opt/hermes/bin/hermes`
 (shim amont) : depuis hermes-agent v0.21.6, le wrapper s6 ne source plus le
 venv et dépend du `ENV PATH` de l'image, que Kubernetes écrase souvent — sans

@@ -33,12 +33,39 @@ USER root
 # Correctifs Debian (porte Trivy CRITICAL) : l'image de base est digests-épinglée
 # et peut donc rester en retard sur les DSA/security de trixie. Sans cette
 # couche, la CI échoue sur des CRITICAL OS « Status: fixed » (glib, mbedtls,
-# perl…) alors que `apt` peut les appliquer ici. On ne les met PAS dans
-# `.trivyignore` — la porte doit rester capable d'échouer sur une régression
-# introduite par ce dépôt. Reliquats vraiment non patchables via apt → S-03.
+# perl, linux-libc-dev…) alors que `apt` peut les appliquer ici. On ne les
+# met PAS dans `.trivyignore` — la porte doit rester capable d'échouer sur une
+# régression introduite par ce dépôt. Reliquats vraiment non patchables via
+# apt → S-03.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
+
+# Correctifs Python du venv hérité (porte Trivy CRITICAL) : même logique que
+# l'apt upgrade — la base digests-épinglée laisse certifi/Pillow en retard sur
+# les advisories PyPI (GHSA-6q48-6c7w-9gw2, CVE-2026-112393/112403/112900)
+# alors qu'un pip upgrade les corrige ici. Pas de `.trivyignore` pour ces
+# CRITICAL corrigibles. Pillow 13 est un major bump : vérifié (hermes_cli,
+# browser_harness, pillow_heif importent).
+#
+# Deux sources de certifi dans la base :
+#   1. /opt/hermes/.venv (site-packages) — upgradé via ensurepip + pip, puis
+#      pip du venv retiré pour ne pas élargir la surface ;
+#   2. pip vendored dans le Python outils (/usr/local/bin/python3 → tools/)
+#      — Trivy le compte aussi (certifi 2026.6.17) ; pip 26.2.2 vendors
+#      certifi 2026.10.19, donc on upgrade ce pip-là.
+# Copies périmées dans les caches uv sont purgées pour ne pas les recompter.
+RUN /usr/local/bin/python3 -m pip install --no-cache-dir --upgrade "pip==26.2.2" \
+    && /opt/hermes/.venv/bin/python -m ensurepip --upgrade \
+    && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir --upgrade \
+        "certifi==2026.10.19" \
+        "Pillow==13.0.0" \
+    && /opt/hermes/.venv/bin/python -m pip uninstall -y pip \
+    && rm -rf /root/.cache/pip \
+    && find /opt/hermes/uv-cache /root/.hermes -type d \
+        \( -name 'certifi-2026.5.*' -o -name 'certifi-2026.6.*' \
+           -o -name 'pillow-12.*' -o -name 'Pillow-12.*' \) \
+        -prune -exec rm -rf {} + 2>/dev/null || true
 
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
 # Remplace himalaya pour tout le Gmail automatisé (API native, OAuth standard)
