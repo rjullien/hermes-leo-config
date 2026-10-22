@@ -95,6 +95,16 @@ gh release create vYYYY.M.D --repo rjullien/hermes-leo-config \
 → `build.yml` (`release: published`) build + push les tags calver + `latest`.
 Image Updater prend ensuite le relais comme ci-dessus.
 
+### Rebuild sécurité hebdomadaire (`weekly-security-rebuild.yml`)
+
+Lundi **03:15 UTC** (04:15 CET / 05:15 CEST) : rebuild `--no-cache` + smokes +
+porte Trivy CRITICAL. Publie une release calver **seulement** si un
+*content-manifest* (dpkg trié + freeze venv + versions outils) diffère de
+`latest` — **pas** via le digest d'image (timestamps). Sinon `no change` et
+exit 0. Porte rouge → issue GitHub, pas de publish. Les builds normaux
+passent aussi `SECURITY_CACHE_BUST` (semaine ISO UTC) pour que le cache GHA
+ne masque pas les couches apt/pip security.
+
 ## 🤖 Renovate — ce que l'agent doit savoir
 
 - Renovate tourne **self-hosted via GitHub Actions** (`renovate.yml`), PAS
