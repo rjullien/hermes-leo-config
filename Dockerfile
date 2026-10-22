@@ -47,7 +47,14 @@ USER root
 #     que des headers kernel userspace, mais Trivy les score quand même.
 # La garde `dpkg --compare-versions` échoue le build si le miroir n'a pas
 # encore le fix (≥ 6.12.113), plutôt que de publier une image vulnérable.
-RUN apt-get update \
+#
+# SECURITY_CACHE_BUST : passé par la CI (semaine ISO UTC, ex. 2026-W43). Sans
+# ça, `cache-from: type=gha` rejoue cette couche tant que l'instruction RUN
+# est inchangée — un `apt-get upgrade` figé rate les DSA publiés après coup
+# (symptôme #69). Redéclaré avant chaque RUN qui doit en dépendre (scope ARG).
+ARG SECURITY_CACHE_BUST=
+RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
+    && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         linux-libc-dev \
@@ -68,7 +75,9 @@ RUN apt-get update \
 #      — Trivy le compte aussi (certifi 2026.6.17) ; pip 26.2.2 vendors
 #      certifi 2026.10.19, donc on upgrade ce pip-là.
 # Copies périmées dans les caches uv sont purgées pour ne pas les recompter.
-RUN /usr/local/bin/python3 -m pip install --no-cache-dir --upgrade "pip==26.2.2" \
+ARG SECURITY_CACHE_BUST=
+RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
+    && /usr/local/bin/python3 -m pip install --no-cache-dir --upgrade "pip==26.2.2" \
     && /opt/hermes/.venv/bin/python -m ensurepip --upgrade \
     && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir --upgrade \
         "certifi==2026.10.19" \

@@ -28,6 +28,11 @@ sont upgradés via pip (versions épinglées dans le `Dockerfile`) quand la base
 reste en retard sur les advisories PyPI CRITICAL corrigibles — sans passer
 par `.trivyignore`.
 
+Ces couches security reçoivent un build-arg `SECURITY_CACHE_BUST` (semaine ISO
+UTC, ex. `2026-W43`) passé par la CI : sans lui, `cache-from: type=gha`
+rejouerait un `apt-get upgrade` figé et masquerait les DSA publiés après coup
+(symptôme CI #69 sur `linux-libc-dev`).
+
 Il crée aussi un symlink `/usr/local/bin/hermes` → `/opt/hermes/bin/hermes`
 (shim amont) : depuis hermes-agent v0.21.6, le wrapper s6 ne source plus le
 venv et dépend du `ENV PATH` de l'image, que Kubernetes écrase souvent — sans
@@ -137,6 +142,29 @@ manuel sur `build.yml` ne produit que le tag `sha-<commit>` : il ne peut donc pa
 déplacer `latest` hors du flux de release (F-02). Déployer par **digest** dans
 vps-infra reste la référence immuable — `latest`/`vX.Y` sont mutables par
 construction.
+
+### Rebuild sécurité hebdomadaire
+
+Renovate ne voit pas les paquets Debian/PyPI hérités de la base digests-épinglée,
+et le cache BuildKit/GHA peut figer une couche `apt-get upgrade`. Chaque **lundi
+à 03:15 UTC** (`weekly-security-rebuild.yml`) — **04:15 Europe/Paris (CET)** /
+**05:15 Europe/Paris (CEST)** — un rebuild `--no-cache` rejoue smokes + porte
+Trivy CRITICAL :
+
+- **porte rouge** → ouverture/mise à jour d'une issue
+  `[security] Trivy CRITICAL — rebuild hebdomadaire`, **aucune** publication ;
+- **porte verte** → comparaison d'un *content-manifest* avec l'image `latest`
+  déjà publiée : `dpkg-query -W` trié + freeze-like du venv
+  `/opt/hermes/.venv` (`importlib.metadata`, pip est retiré de l'image) +
+  versions des 5 outils (et certifi vendored du Python outils). Le **digest
+  d'image n'est pas utilisé** : un rebuild no-cache change toujours les
+  timestamps de couches ;
+- manifeste **identique** → log `no change`, exit 0, **pas** de release (évite
+  un redeploy Image Updater / Léo-Léa pour rien) ;
+- manifeste **différent** → release calver + push `latest` via `build-image.yml`
+  (`no_cache: true`), puis Image Updater comme d'habitude.
+
+Déclenchement manuel : `workflow_dispatch` sur ce workflow.
 
 **Réglages serveur recommandés (hors code, F-02) :** activer la branch
 protection sur `main` (checks requis, cf. F-01) et l'immutabilité/rétention du
