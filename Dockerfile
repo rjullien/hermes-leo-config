@@ -37,8 +37,21 @@ USER root
 # met PAS dans `.trivyignore` — la porte doit rester capable d'échouer sur une
 # régression introduite par ce dépôt. Reliquats vraiment non patchables via
 # apt → S-03.
+#
+# linux-libc-dev est réinstallé explicitement (pas seulement via `upgrade`) :
+# (1) le cache BuildKit/GHA rejoue sinon une couche `apt-get upgrade` figée
+#     avant la publication de 6.12.113-1 (vu en CI #69 : `#7 CACHED` →
+#     Trivy CRITICAL CVE-2026-98621/98725/98805 sur 6.12.111-1) ;
+# (2) on ne le retire pas — `libc6-dev` / gcc / python3-dev en dépendent et
+#     restent utiles aux lazy-installs natives du runtime hermes. Ce n'est
+#     que des headers kernel userspace, mais Trivy les score quand même.
+# La garde `dpkg --compare-versions` échoue le build si le miroir n'a pas
+# encore le fix (≥ 6.12.113), plutôt que de publier une image vulnérable.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        linux-libc-dev \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' linux-libc-dev)" ge 6.12.113-1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Correctifs Python du venv hérité (porte Trivy CRITICAL) : même logique que
