@@ -109,18 +109,20 @@ jobs:
               hermes --version
             '
 
-      - name: Smoke test — certifi/Pillow patchés + imports hermes
+      - name: Smoke test — certifi/Pillow/brotlicffi patchés + imports hermes
         run: |
           set -euo pipefail
           img="${{ env.LOCAL_TAG }}"
           docker run --rm --user hermes --entrypoint /opt/hermes/.venv/bin/python "$img" -c "
           from importlib.metadata import version
           from PIL import Image
-          import certifi, hermes_cli.main, browser_harness
-          cert_v, pil_v = version('certifi'), version('pillow')
-          print('certifi', cert_v, 'pillow', pil_v)
+          import brotlicffi, certifi, hermes_cli.main, browser_harness
+          cert_v, pil_v, br_v = version('certifi'), version('pillow'), version('brotlicffi')
+          print('certifi', cert_v, 'pillow', pil_v, 'brotlicffi', br_v)
           assert tuple(int(x) for x in cert_v.split('.')) >= (2026, 10, 19), cert_v
           assert tuple(int(x) for x in pil_v.split('.')) >= (13, 0, 0), pil_v
+          assert tuple(int(x) for x in br_v.split('.')) >= (1, 2, 1, 0), br_v
+          assert brotlicffi.decompress(brotlicffi.compress(b'ok')) == b'ok'
           Image.new('RGB', (4, 4), color=(0, 128, 255))
           print('imports_ok')
           "
@@ -164,8 +166,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          REPORT=$(cat trivy-critical.txt 2>/dev/null || echo "(rapport Trivy indisponible)")
-          BODY=$(cat <<EOF
+          # Le tableau « Report Summary » liste chaque fichier scanné (milliers
+          # de lignes) : passé en argument il dépassait ARG_MAX (`gh: Argument
+          # list too long`, exit 126) et la limite de 65 536 caractères d'un
+          # body GitHub. On le retire, on borne le reste et on passe par
+          # --body-file.
+          if [ -f trivy-critical.txt ]; then
+            REPORT=$(awk '/^Report Summary/{skip=1} skip && /^└/{skip=0; next} !skip' trivy-critical.txt | head -c 50000)
+          else
+            REPORT="(rapport Trivy indisponible)"
+          fi
+          cat > /tmp/issue-body.md <<EOF
           ## Rebuild sécurité hebdomadaire — porte Trivy CRITICAL en échec
 
           Run : ${RUN_URL}
@@ -178,19 +189,18 @@ jobs:
           ${REPORT}
           \`\`\`
           EOF
-          )
           # Normaliser l'indentation du heredoc (les espaces YAML).
-          BODY=$(printf '%s\n' "$BODY" | sed 's/^          //')
+          sed -i 's/^          //' /tmp/issue-body.md
           EXISTING=$(gh issue list --repo "${{ github.repository }}" \
             --search "\"${ISSUE_TITLE}\" in:title state:open" \
             --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo "${{ github.repository }}" --body "$BODY"
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" --body-file /tmp/issue-body.md
             echo "Issue #$EXISTING mise à jour."
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$ISSUE_TITLE" \
-              --body "$BODY"
+              --body-file /tmp/issue-body.md
             echo "Issue créée."
           fi
           echo "::error::Porte Trivy CRITICAL en échec — pas de publication."
