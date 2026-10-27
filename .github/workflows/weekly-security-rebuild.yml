@@ -251,7 +251,7 @@ jobs:
           kubectl version --client 2>&1 | head -n 2
           devin --version 2>&1 | head -n 1
           go version 2>&1 | head -n 1
-          python3 -c 'import pip._vendor.certifi as c; print("vendor-certifi", c.__version__)' 2>&1 | head -n 1
+          /usr/local/bin/python3 -c 'import pip._vendor.certifi as c; print("vendor-certifi", c.__version__)' 2>&1 | head -n 1
           SCRIPT
           # Retirer l'indentation YAML du heredoc.
           sed -i 's/^          //' /tmp/extract-manifest.sh
