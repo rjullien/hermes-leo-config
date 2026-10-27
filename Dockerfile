@@ -64,7 +64,9 @@ RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
 # Correctifs Python du venv hérité (porte Trivy CRITICAL) : même logique que
 # l'apt upgrade — la base digests-épinglée laisse certifi/Pillow en retard sur
 # les advisories PyPI (GHSA-6q48-6c7w-9gw2, CVE-2026-112393/112403/112900)
-# alors qu'un pip upgrade les corrige ici. Pas de `.trivyignore` pour ces
+# alors qu'un pip upgrade les corrige ici. Idem brotlicffi 1.2.0.2
+# (GHSA-9v8h-qqgm-4m35, publiée le 2026-10-22, corrigée en 1.2.1.0) : encore
+# 1.2.0.2 dans l'uv.lock amont jusqu'à v0.22.5 au moins. Pas de `.trivyignore` pour ces
 # CRITICAL corrigibles. Pillow 13 est un major bump : vérifié (hermes_cli,
 # browser_harness, pillow_heif importent).
 #
@@ -82,11 +84,13 @@ RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
     && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir --upgrade \
         "certifi==2026.10.19" \
         "Pillow==13.0.0" \
+        "brotlicffi==1.2.1.0" \
     && /opt/hermes/.venv/bin/python -m pip uninstall -y pip \
     && rm -rf /root/.cache/pip \
     && find /opt/hermes/uv-cache /root/.hermes -type d \
         \( -name 'certifi-2026.5.*' -o -name 'certifi-2026.6.*' \
-           -o -name 'pillow-12.*' -o -name 'Pillow-12.*' \) \
+           -o -name 'pillow-12.*' -o -name 'Pillow-12.*' \
+           -o -name 'brotlicffi-1.2.0.*' \) \
         -prune -exec rm -rf {} + 2>/dev/null || true
 
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
