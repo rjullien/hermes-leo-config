@@ -112,8 +112,8 @@ RUN curl -fsSL -o /tmp/gws.tar.gz https://github.com/googleworkspace/cli/release
 
 # --- gh : GitHub CLI ---
 # renovate: datasource=github-releases depName=cli/cli
-ARG GH_VERSION=2.102.0
-ARG GH_SHA256=bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+ARG GH_VERSION=2.103.3
+ARG GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
 RUN curl -fsSL -o /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
     && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar xz -C /tmp -f /tmp/gh.tar.gz \
