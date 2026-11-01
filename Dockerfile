@@ -5,13 +5,13 @@
 #   - gws      : Google Workspace CLI (Gmail, Tasks, Calendar, Drive) — remplace gws-axi 0.6.1 ET himalaya
 #   - gh       : GitHub CLI (issues, PRs, releases)
 #   - kubectl  : debug cluster (lecture pods/logs)
-#   - devin    : Devin CLI (agent IA terminal) — auth OAuth, credentials sur PVC (/opt/data), PAS dans l'image
-#   - go       : toolchain Go (compiler/tester les repos Go depuis le pod : opencode-usage-tracker, etc.)
+#   - adb      : Android Debug Bridge (tablettes murales, caméras, dépannage — depuis platform-tools Google)
+#   - go       : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker, etc.)
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
 #
 # ⚠️ SÉCURITÉ : repo PUBLIC + image ghcr.io publique — AUCUN secret/token dans ce Dockerfile.
-# Les credentials (gws OAuth, devin auth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
+# Les credentials (gws OAuth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
 
 # Base épinglée par digest (S-02) : reconstruire ce commit utilise toujours la
 # même image, même si le tag v2026.8.16 est déplacé. Renovate maintient le
@@ -24,7 +24,7 @@ FROM nousresearch/hermes-agent:v0.22.4@sha256:7a69201726bc64db2072a1371557137c23
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
-# (gws → gh → kubectl → devin → go). Ainsi, changer la version d'un outil
+# (gws → gh → kubectl → adb → go). Ainsi, changer la version d'un outil
 # n'invalide QUE sa couche et les suivantes, pas les précédentes.
 # Chaque outil a un SHA-256 attendu (S-01) : téléchargement vérifié AVANT
 # extraction. Renovate maintient version + digest (voir renovate.json).
@@ -130,19 +130,21 @@ RUN curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin
     && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl \
     && rm -f /tmp/kubectl
 
-# --- devin : Devin CLI (agent IA) ---
-# Binaire seul (le tar contient bin/devin + share/docs, on n'extrait que bin/)
-# Auth: `devin auth login` (device flow) ou `--force-manual-token-flow` (pod headless)
-# Credentials → ~/.local/share/devin/credentials.toml (PVC /opt/data, persistant)
-# renovate: datasource=custom.devin-cli depName=devin-cli
-ARG DEVIN_VERSION=3000.11.3
-ARG DEVIN_SHA256=83b3b113c01bf2a3e9e100db08d77e6b086806a7754f091e20831bdfe215157e
-RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}/devin-${DEVIN_VERSION}-x86_64-unknown-linux.tar.gz \
-    && echo "${DEVIN_SHA256}  /tmp/devin.tar.gz" | sha256sum -c - \
-    && tar xz -C /tmp -f /tmp/devin.tar.gz \
-    && cp /tmp/bin/devin /usr/local/bin/devin \
-    && rm -rf /tmp/bin /tmp/share /tmp/devin.tar.gz \
-    && chmod +x /usr/local/bin/devin
+# --- adb : Android Debug Bridge (tablettes, caméras, kiosque) ---
+# Binaire glibc extrait du SDK Android platform-tools. Google ne publie PAS de
+# SHA-256 pour ces archives (repository2-3.xml = SHA-1 uniquement) : le
+# ARG ADB_SHA256 est calculé par scripts/sync-download-checksums.mjs sur
+# l'artefact téléchargé (jamais édité à la main), retouché dans le commit
+# Renovate par postUpgradeTasks, et contre-vérifié par S-01. Extraction via
+# python3 zipfile (pas d'unzip dans la base).
+# renovate: datasource=custom.android-platform-tools depName=android-platform-tools
+ARG ADB_VERSION=37.0.1
+ARG ADB_SHA256=d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1
+RUN curl -fsSL -o /tmp/platform-tools.zip https://dl.google.com/android/repository/platform-tools_r${ADB_VERSION}-linux.zip \
+    && echo "${ADB_SHA256}  /tmp/platform-tools.zip" | sha256sum -c - \
+    && /usr/local/bin/python3 -m zipfile -e /tmp/platform-tools.zip /tmp/pt \
+    && install -m 0755 /tmp/pt/platform-tools/adb /usr/local/bin/adb \
+    && rm -rf /tmp/pt /tmp/platform-tools.zip
 
 # --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
 # Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire

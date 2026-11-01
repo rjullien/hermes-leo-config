@@ -109,7 +109,7 @@ jobs:
           docker run --rm --entrypoint gws     "$img" --version
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
-          docker run --rm --entrypoint devin   "$img" --version
+          docker run --rm --entrypoint adb     "$img" version
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
 
