@@ -2,14 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "customDatasources": {
-    "devin-cli": {
-      "description": "Devin CLI : version lue depuis le manifest officiel static.devin.ai. Le Dockerfile DOIT le référencer par `datasource=custom.devin-cli` : un customDatasource nommé se résout en `custom.<nom>`, et `datasource=custom` tout court donne « No custom datasource config provided while devin-cli has been requested » puis « Failed to look up custom package devin-cli: no-result » (vérifié en dry-run Renovate 44.61.6).",
-      "defaultRegistryUrlTemplate": "https://static.devin.ai/cli/current/manifest.json",
-      "format": "json",
-      "transformTemplates": [
-        "{'releases': [{'version': version}]}"
-      ]
-    },
     "android-platform-tools": {
       "description": "Android platform-tools (adb) : version lue depuis la cask Homebrew android-platform-tools (suit les releases Google, URL dl.google.com identique). Le Dockerfile DOIT le référencer par `datasource=custom.android-platform-tools` (custom nommé → `custom.<nom>`).",
       "defaultRegistryUrlTemplate": "https://formulae.brew.sh/api/cask/android-platform-tools.json",
@@ -41,8 +33,8 @@
       "automergeType": "pr"
     },
     {
-      "description": "Binaires outils (gws, gh, kubectl, devin, go) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici).",
-      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "devin-cli", "golang", "android-platform-tools"],
+      "description": "Binaires outils (gws, gh, kubectl, adb, go) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici).",
+      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "golang", "android-platform-tools"],
       "minimumReleaseAge": "3 days",
       "automerge": true,
       "automergeType": "pr",

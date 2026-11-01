@@ -6,7 +6,7 @@ par les règles suivantes. À LIRE AVANT de modifier quoi que ce soit.
 ## 🎯 Le but du repo
 
 Une couche fine sur l'image officielle `nousresearch/hermes-agent` :
-**seulement des binaires système** (gws, gh, kubectl, devin, adb, go). Pas de
+**seulement des binaires système** (gws, gh, kubectl, adb, go). Pas de
 scripts, pas de venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et
 les ConfigMaps (vps-infra), pas dans l'image.
 
@@ -41,7 +41,7 @@ les ConfigMaps (vps-infra), pas dans l'image.
    ARG GWS_SHA256=de78ecdbd2f1a84cca0063a7ecbc440240fc14b6ebccbb17f4646b792a8c5c1f
    ```
    Pour une datasource **custom** définie dans `customDatasources`, la valeur est
-   `custom.<nom>` (ex. `datasource=custom.devin-cli`) et **pas** `custom` : voir
+   `custom.<nom>` (ex. `datasource=custom.android-platform-tools`) et **pas** `custom` : voir
    l'avertissement dédié dans la section Renovate ci-dessous, un `custom` nu gèle
    silencieusement l'outil.
    Les trois lignes forment un bloc indissociable : le `RUN` qui suit vérifie
@@ -131,7 +131,7 @@ ne masque pas les couches apt/pip security.
 Renovate ne connaît que le `ARG <OUTIL>_VERSION`. Deux réglages, et deux
 seulement, empêchent le `ARG <OUTIL>_SHA256` de rester périmé :
 
-1. **`postUpgradeTasks` dans `renovate.json`** (règle des 6 binaires) :
+1. **`postUpgradeTasks` dans `renovate.json`** (règle des 5 binaires) :
    `node scripts/sync-download-checksums.mjs --write --only={{{depName}}}`,
    `fileFilters: ["Dockerfile"]`, `executionMode: "update"`. Le SHA corrigé
    fait donc partie du **commit Renovate** et reste relisible dans le diff.
@@ -189,12 +189,12 @@ d'emblée) ; un artefact simplement trop lent épuise sa tranche, ce qui est un
 Trivy).
 
 Le **403 ne peut pas être classé sur le seul code** : GitHub le renvoie sur
-throttling secondaire (à retenter), mais `static.devin.ai` le renvoie pour un objet
-**inexistant** (vérifié : `/cli/9999.0.0/manifest.json` → 403, là où GitHub et
+throttling secondaire (à retenter), mais `static.devin.ai` (outil retiré depuis) le
+renvoie pour un objet **inexistant** (vérifié : `/cli/9999.0.0/manifest.json` → 403, là où GitHub et
 `dl.k8s.io` renvoient 404). Le script ne le retente donc que si la réponse porte un
 indice de throttling (`retry-after`, `x-ratelimit-remaining: 0`, corps mentionnant
 un rate limit) ; sinon il le traite comme un 404. Ne pas « simplifier » en
-remettant 403 dans la liste des statuts retentables : une version devin inexistante
+remettant 403 dans la liste des statuts retentables : une version inexistante
 redeviendrait une garde verte. Symétriquement, **ce test d'indice de throttling ne
 s'applique qu'au 403** : l'étendre à tous les statuts ferait d'un 404 portant un
 `retry-after` une indisponibilité, donc une garde verte sur un asset renommé. Et
@@ -227,7 +227,7 @@ version dont les binaires existent, et `--check` reste vert.
 
 ⚠️ **Ne pas remettre le groupe de capture `currentDigest`** dans
 `customManagers` : aucune des datasources utilisées (`golang-version`,
-`github-releases`, `github-tags`, `custom.devin-cli`) ne sait résoudre le SHA-256
+`github-releases`, `github-tags`, `custom.android-platform-tools`) ne sait résoudre le SHA-256
 d'une archive comme un digest. Le résultat observé était : branche
 `renovate/kubernetes-kubernetes-digest` en erreur en tentant d'écrire un SHA de
 **commit git** de kubernetes/kubernetes dans `KUBECTL_SHA256`, et « Could not
@@ -235,7 +235,8 @@ determine new digest for update » pour `googleworkspace/cli` et `cli/cli` — s
 gws et gh **gelés sans aucune mise à jour**.
 
 ⚠️ **Un `customDatasources` nommé se référence par `custom.<nom>`, jamais
-`custom` tout court.** Le gel de devin avait cette cause-là, et non le groupe
+`custom` tout court.** Le gel de devin-cli (outil retiré depuis) avait cette
+cause-là, et non le groupe
 `currentDigest` : avec `# renovate: datasource=custom depName=devin-cli`,
 Renovate loggue « No custom datasource config provided while devin-cli has been
 requested » puis « Failed to look up custom package devin-cli: no-result », et
@@ -250,7 +251,7 @@ toute retouche d'une ligne `# renovate:` :
 docker run --rm -v "$PWD":/tmp/renovate/repo -e RENOVATE_PLATFORM=local \
   -e RENOVATE_DRY_RUN=lookup -e LOG_LEVEL=debug -w /tmp/renovate/repo \
   ghcr.io/renovatebot/renovate:44.61.6 renovate 2>&1 | grep 'flattened updates'
-# doit lister les 6 outils concernés, pas 5
+# doit lister les 5 outils concernés, pas 4
 ```
 
 Sources amont du checksum, par outil (utilisées par le script) :
@@ -260,7 +261,6 @@ Sources amont du checksum, par outil (utilisées par le script) :
 | gws | `…/releases/download/v<V>/google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz.sha256` (format `<hex>␠␠<fichier>`) |
 | gh | `…/releases/download/v<V>/gh_<V>_checksums.txt` → ligne dont le fichier est exactement `gh_<V>_linux_amd64.tar.gz` |
 | kubectl | `https://dl.k8s.io/release/v<V>/bin/linux/amd64/kubectl.sha256` (hex nu ; c'est le hash du **binaire**, pas d'une archive) |
-| devin | `https://static.devin.ai/cli/<V>/manifest.json` → `.platforms["x86_64-unknown-linux"].sha256` (manifest **par version**, pas `/current/`) |
 | go | `https://go.dev/dl/?mode=json&include=all` → entrée `.version == "go<V>"`, fichier `os=linux` `arch=amd64` `kind=archive`, champ `.sha256` |
 | adb | **aucun SHA-256 amont** : Google ne publie que des SHA-1 (`repository2-3.xml`, vérifié : 0 `sha256`) — le script recalcule le SHA-256 sur l'artefact téléchargé lui-même |
 

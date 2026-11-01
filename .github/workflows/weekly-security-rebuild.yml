@@ -83,7 +83,7 @@ jobs:
           no-cache: true
           platforms: linux/amd64
 
-      - name: Smoke test — les 6 outils répondent
+      - name: Smoke test — les 5 outils répondent
         run: |
           set -euo pipefail
           img="${{ env.LOCAL_TAG }}"
@@ -91,7 +91,6 @@ jobs:
           docker run --rm --entrypoint gws     "$img" --version
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
-          docker run --rm --entrypoint devin   "$img" --version
           docker run --rm --entrypoint adb     "$img" version
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
@@ -279,7 +278,6 @@ jobs:
           gws --version 2>&1 | head -n 1
           gh --version 2>&1 | head -n 1
           kubectl version --client 2>&1 | head -n 2
-          devin --version 2>&1 | head -n 1
           adb version 2>&1 | head -n 1
           go version 2>&1 | head -n 1
           /usr/local/bin/python3 -c 'import pip._vendor.certifi as c; print("vendor-certifi", c.__version__)' 2>&1 | head -n 1

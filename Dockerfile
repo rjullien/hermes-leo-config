@@ -5,14 +5,13 @@
 #   - gws      : Google Workspace CLI (Gmail, Tasks, Calendar, Drive) — remplace gws-axi 0.6.1 ET himalaya
 #   - gh       : GitHub CLI (issues, PRs, releases)
 #   - kubectl  : debug cluster (lecture pods/logs)
-#   - devin    : Devin CLI (agent IA terminal) — auth OAuth, credentials sur PVC (/opt/data), PAS dans l'image
 #   - adb      : Android Debug Bridge (tablettes murales, caméras, dépannage — depuis platform-tools Google)
 #   - go       : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker, etc.)
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
 #
 # ⚠️ SÉCURITÉ : repo PUBLIC + image ghcr.io publique — AUCUN secret/token dans ce Dockerfile.
-# Les credentials (gws OAuth, devin auth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
+# Les credentials (gws OAuth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
 
 # Base épinglée par digest (S-02) : reconstruire ce commit utilise toujours la
 # même image, même si le tag v2026.8.16 est déplacé. Renovate maintient le
@@ -25,7 +24,7 @@ FROM nousresearch/hermes-agent:v0.22.4@sha256:7a69201726bc64db2072a1371557137c23
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
-# (gws → gh → kubectl → devin → go). Ainsi, changer la version d'un outil
+# (gws → gh → kubectl → adb → go). Ainsi, changer la version d'un outil
 # n'invalide QUE sa couche et les suivantes, pas les précédentes.
 # Chaque outil a un SHA-256 attendu (S-01) : téléchargement vérifié AVANT
 # extraction. Renovate maintient version + digest (voir renovate.json).
@@ -130,20 +129,6 @@ RUN curl -fsSL -o /tmp/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin
     && echo "${KUBECTL_SHA256}  /tmp/kubectl" | sha256sum -c - \
     && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl \
     && rm -f /tmp/kubectl
-
-# --- devin : Devin CLI (agent IA) ---
-# Binaire seul (le tar contient bin/devin + share/docs, on n'extrait que bin/)
-# Auth: `devin auth login` (device flow) ou `--force-manual-token-flow` (pod headless)
-# Credentials → ~/.local/share/devin/credentials.toml (PVC /opt/data, persistant)
-# renovate: datasource=custom.devin-cli depName=devin-cli
-ARG DEVIN_VERSION=3000.11.3
-ARG DEVIN_SHA256=83b3b113c01bf2a3e9e100db08d77e6b086806a7754f091e20831bdfe215157e
-RUN curl -fsSL -o /tmp/devin.tar.gz https://static.devin.ai/cli/${DEVIN_VERSION}/devin-${DEVIN_VERSION}-x86_64-unknown-linux.tar.gz \
-    && echo "${DEVIN_SHA256}  /tmp/devin.tar.gz" | sha256sum -c - \
-    && tar xz -C /tmp -f /tmp/devin.tar.gz \
-    && cp /tmp/bin/devin /usr/local/bin/devin \
-    && rm -rf /tmp/bin /tmp/share /tmp/devin.tar.gz \
-    && chmod +x /usr/local/bin/devin
 
 # --- adb : Android Debug Bridge (tablettes, caméras, kiosque) ---
 # Binaire glibc extrait du SDK Android platform-tools. Google ne publie PAS de

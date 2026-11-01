@@ -3,7 +3,7 @@
 // avec les `ARG <OUTIL>_VERSION` correspondants.
 //
 // POURQUOI CE SCRIPT EXISTE
-// Le Dockerfile épingle, pour chacun des 5 outils (gws, gh, kubectl, devin, go),
+// Le Dockerfile épingle, pour chacun des 5 outils (gws, gh, kubectl, adb, go),
 // une version ET le SHA-256 attendu de l'artefact téléchargé (finding S-01 :
 // le téléchargement est vérifié AVANT extraction). Renovate sait bumper l'ARG
 // version, mais aucune des datasources utilisées (github-releases, github-tags,
@@ -130,7 +130,7 @@ const GLOBAL_BUDGET_ARTIFACTS_MS = 20 * 60_000;
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 // 403 est ambigu et ne peut pas être classé sur le seul code : GitHub le renvoie
 // sur throttling secondaire (indisponibilité, à retenter) alors que static.devin.ai
-// le renvoie pour un objet INEXISTANT (vérifié : /cli/9999.0.0/manifest.json -> 403).
+// (outil retiré depuis) le renvoie pour un objet INEXISTANT (vérifié : /cli/9999.0.0/manifest.json -> 403).
 // On ne le retente donc que s'il ressemble à du throttling (en-têtes ou corps),
 // sinon c'est un échec de vérification comme un 404.
 const THROTTLING_HINT = /rate limit|secondary rate|abuse detection|too many requests|throttl/i;
@@ -188,20 +188,6 @@ const TOOLS = [
       const url = `${tool.artifact(v)}.sha256`;
       const body = await httpText(url);
       return { url, body, value: body.trim() };
-    },
-  },
-  {
-    prefix: 'DEVIN',
-    label: 'Devin CLI',
-    aliases: ['devin', 'devin-cli'],
-    artifact: (v) =>
-      `https://static.devin.ai/cli/${v}/devin-${v}-x86_64-unknown-linux.tar.gz`,
-    // Manifeste de LA version demandée (pas /cli/current/manifest.json, qui
-    // renvoie toujours la plus récente).
-    upstream: async (v) => {
-      const url = `https://static.devin.ai/cli/${v}/manifest.json`;
-      const body = await httpText(url);
-      return { url, body, value: parseJson(body)?.platforms?.['x86_64-unknown-linux']?.sha256 };
     },
   },
   {
@@ -652,9 +638,10 @@ Options :
   --write             réécrit la ligne ARG <OUTIL>_SHA256 des outils concernés.
                       Tout échec est fatal et n'écrit rien.
   --only=<outil>      limite le traitement à un outil. Accepte gws, gh, kubectl,
-                      devin, go ainsi que les depName Renovate (googleworkspace/cli,
-                      cli/cli, kubernetes/kubernetes, devin-cli, golang). Une valeur
-                      inconnue sort en 0 sans rien écrire.
+                      adb, go ainsi que les depName Renovate (googleworkspace/cli,
+                      cli/cli, kubernetes/kubernetes, golang,
+                      android-platform-tools). Une valeur inconnue sort en 0 sans
+                      rien écrire.
   --verify-artifacts  retélécharge et rehashe l'artefact de CHAQUE outil, même
                       quand le checksum commité est déjà à jour (~140 Mo). Sert à
                       rejouer la contre-vérification S-01 que le cache de couches

@@ -11,7 +11,7 @@ outils agents absents de la base.
 | **gws** (Google Workspace CLI) | 0.22.5 | Gmail, Tasks, Calendar, Drive — Gmail automatisé (remplace himalaya) |
 | **gh** (GitHub CLI) | 2.99.0 | Issues, PRs, releases |
 | **kubectl** | 1.37.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
-| **devin** (Devin CLI) | 3000.6.7 | Agent IA terminal — auth OAuth, credentials sur PVC (jamais dans l'image) |
+| **adb** (platform-tools) | 37.0.1 | Android Debug Bridge — tablettes murales, caméras, dépannage Android |
 | **go** (toolchain) | 1.27.0 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
 
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
@@ -41,7 +41,7 @@ démarre pas. La CI rejoue ce scénario (PATH standard, user `hermes`).
 
 ## Vérification des téléchargements (SHA-256)
 
-Les 6 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
+Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
 est accompagné d'un `ARG *_SHA256` **commité dans le repo**, et le `RUN`
 correspondant vérifie l'archive avec `sha256sum -c` **avant** de l'extraire
 (S-01). Une archive substituée en amont fait donc échouer le build, elle
@@ -50,7 +50,8 @@ n'atterrit jamais dans l'image.
 Ces checksums sont maintenus par machine, jamais à la main :
 [`scripts/sync-download-checksums.mjs`](scripts/sync-download-checksums.mjs)
 lit le checksum **publié par l'éditeur** (release GitHub, `dl.k8s.io`,
-`manifest.json` Devin, index JSON de go.dev), **retélécharge l'artefact et
+manifest JSON, index JSON de go.dev — adb excepté : aucun amont, le script
+hash l'artefact lui-même), **retélécharge l'artefact et
 recalcule son SHA-256 en flux**, et refuse d'écrire une valeur si les deux ne
 concordent pas.
 
@@ -164,7 +165,7 @@ Trivy CRITICAL :
 - **porte verte** → comparaison d'un *content-manifest* avec l'image `latest`
   déjà publiée : `dpkg-query -W` trié + freeze-like du venv
   `/opt/hermes/.venv` (`importlib.metadata`, pip est retiré de l'image) +
-  versions des 6 outils (et certifi vendored du Python outils). Le **digest
+  versions des 5 outils (et certifi vendored du Python outils). Le **digest
   d'image n'est pas utilisé** : un rebuild no-cache change toujours les
   timestamps de couches ;
 - manifeste **identique** → log `no change`, exit 0, **pas** de release (évite
@@ -185,12 +186,12 @@ Renovate publique). Config : `renovate.json`.
 
 | Dépendance | Délai avant PR | Automerge |
 |---|---|---|
-| Binaires (gws, gh, kubectl, devin, adb, go) | 3 jours | ✅ automerge |
+| Binaires (gws, gh, kubectl, adb, go) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
 | Image de base `hermes-agent` | 7 jours | ✅ automerge |
 
 **Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
-dépendance** (gws, gh, kubectl, devin, adb, go, hermes-agent, Actions). Il n'y a plus
+dépendance** (gws, gh, kubectl, adb, go, hermes-agent, Actions). Il n'y a plus
 d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
 donc pas fusionnée automatiquement. **Il n'y a pas de vérification humaine en
 aval** : ArgoCD Image Updater déploie automatiquement chaque nouvelle release
@@ -202,7 +203,7 @@ build, le smoke test et la porte Trivy CRITICAL.
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
 (F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
-6 outils testés, scan sans nouvelle CRITICAL corrigible).
+5 outils testés, scan sans nouvelle CRITICAL corrigible).
 
 ⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
 `strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
@@ -253,9 +254,9 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    était un SHA de commit git écrit dans `KUBECTL_SHA256` plus deux outils
    (gws, gh) gelés sans aucune mise à jour.
    Une datasource **custom** se référence par `custom.<nom>` :
-   `datasource=custom.devin-cli`, jamais `datasource=custom` seul, sinon Renovate
-   sort « Failed to look up custom package devin-cli: no-result » et devin reste
-   gelé (c'était le cas, indépendamment du `currentDigest`).
+   `datasource=custom.android-platform-tools`, jamais `datasource=custom` seul,
+   sinon Renovate sort « Failed to look up custom package …: no-result » et
+   l'outil reste gelé (vu sur devin-cli, indépendamment du `currentDigest`).
 4. **Binaire glibc** : l'image de base est debian (glibc) → télécharger
    `google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz` (PAS `-musl`, réservé
    aux images Alpine).
@@ -269,10 +270,11 @@ qu'à `GITHUB_TOKEN`, pas à ce token — ses scopes se règlent côté GitHub.
    et ne propose/touche pas avant l'âge requis — c'est volontaire (délai 3j/7j).
    Un merge en conflit (405 `Pull Request has merge conflicts`) est retenté au
    run suivant après rebase (`rebaseWhen=behind-base-branch`).
-7. **Devin CLI** : version via `customDatasources.devin-cli` qui lit le manifest
-   `https://static.devin.ai/cli/current/manifest.json` (champ `version`),
-   référencé côté Dockerfile par `datasource=custom.devin-cli` — le tar
-   contient `bin/devin` + `share/`, on n'extrait que `bin/`.
+7. **adb (platform-tools)** : version via `customDatasources.android-platform-tools`
+   qui lit la cask Homebrew `android-platform-tools` (champ `version`, suit les
+   releases Google), référencé côté Dockerfile par
+   `datasource=custom.android-platform-tools` — le zip contient tout le SDK
+   platform-tools, on n'installe que le binaire `adb`.
 
 ## Secrets
 
@@ -284,26 +286,10 @@ Config locale des credentials gws sur le pod :
 `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` + `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`
 (par compte : rene / leo séparés pour éviter la fuite de compte via le cache).
 
-### Devin CLI — auth (le token n'est PAS dans l'image)
-
-Le binaire est dans l'image, mais **le token Devin est un secret → Infisical**.
-
-Auth dans le pod (une fois) :
-
-```bash
-kubectl exec -n openclaw deploy/hermes-leo -- devin auth login
-# ou en headless (recommandé pod) :
-kubectl exec -n openclaw deploy/hermes-leo -- devin auth login --force-manual-token-flow
-```
-
-- Credentials persistés dans `~/.local/share/devin/credentials.toml` (PVC `/opt/data`, survit aux redéploiements)
-- Vérif : `kubectl exec -n openclaw deploy/hermes-leo -- devin auth status` → `Logged in`
-- La clé API Devin (si token) se met dans Infisical (`/agents/hermes-leo` → `DEVIN_TOKEN`) et s'injecte en env/volume du pod — jamais en build arg.
-
 ## Architecture
 
 ⚠️ **Image `linux/amd64` uniquement (P-03).** Les binaires téléchargés dans le
-`Dockerfile` (gws, gh, kubectl, devin, go) ciblent explicitement `x86_64`/`amd64`,
+`Dockerfile` (gws, gh, kubectl, adb, go) ciblent explicitement `x86_64`/`amd64`,
 et `build.yml` ne construit que `platforms: linux/amd64`. L'image de base
 `hermes-agent` publie aussi une variante `arm64`, mais cette image custom ne la
 couvre pas. Le pod `hermes-leo` doit donc tourner sur un nœud amd64.
@@ -325,6 +311,6 @@ Changement d'image → PR vps-infra (pattern GitOps, ArgoCD auto-sync).
 kubectl exec -n openclaw deploy/hermes-leo -- gws --version  # 0.22.5
 kubectl exec -n openclaw deploy/hermes-leo -- gh --version   # 2.x
 kubectl exec -n openclaw deploy/hermes-leo -- kubectl version --client
-kubectl exec -n openclaw deploy/hermes-leo -- devin version    # 3000.x
+kubectl exec -n openclaw deploy/hermes-leo -- adb version     # 37.x
 kubectl exec -n openclaw deploy/hermes-leo -- go version       # 1.27.x
 ```
