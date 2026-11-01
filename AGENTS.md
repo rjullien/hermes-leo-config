@@ -6,7 +6,7 @@ par les règles suivantes. À LIRE AVANT de modifier quoi que ce soit.
 ## 🎯 Le but du repo
 
 Une couche fine sur l'image officielle `nousresearch/hermes-agent` :
-**seulement des binaires système** (gws, gh, kubectl, devin, go). Pas de
+**seulement des binaires système** (gws, gh, kubectl, devin, adb, go). Pas de
 scripts, pas de venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et
 les ConfigMaps (vps-infra), pas dans l'image.
 
@@ -131,7 +131,7 @@ ne masque pas les couches apt/pip security.
 Renovate ne connaît que le `ARG <OUTIL>_VERSION`. Deux réglages, et deux
 seulement, empêchent le `ARG <OUTIL>_SHA256` de rester périmé :
 
-1. **`postUpgradeTasks` dans `renovate.json`** (règle des 5 binaires) :
+1. **`postUpgradeTasks` dans `renovate.json`** (règle des 6 binaires) :
    `node scripts/sync-download-checksums.mjs --write --only={{{depName}}}`,
    `fileFilters: ["Dockerfile"]`, `executionMode: "update"`. Le SHA corrigé
    fait donc partie du **commit Renovate** et reste relisible dans le diff.
@@ -250,7 +250,7 @@ toute retouche d'une ligne `# renovate:` :
 docker run --rm -v "$PWD":/tmp/renovate/repo -e RENOVATE_PLATFORM=local \
   -e RENOVATE_DRY_RUN=lookup -e LOG_LEVEL=debug -w /tmp/renovate/repo \
   ghcr.io/renovatebot/renovate:44.61.6 renovate 2>&1 | grep 'flattened updates'
-# doit lister les 5 outils concernés, pas 4
+# doit lister les 6 outils concernés, pas 5
 ```
 
 Sources amont du checksum, par outil (utilisées par le script) :
@@ -262,11 +262,18 @@ Sources amont du checksum, par outil (utilisées par le script) :
 | kubectl | `https://dl.k8s.io/release/v<V>/bin/linux/amd64/kubectl.sha256` (hex nu ; c'est le hash du **binaire**, pas d'une archive) |
 | devin | `https://static.devin.ai/cli/<V>/manifest.json` → `.platforms["x86_64-unknown-linux"].sha256` (manifest **par version**, pas `/current/`) |
 | go | `https://go.dev/dl/?mode=json&include=all` → entrée `.version == "go<V>"`, fichier `os=linux` `arch=amd64` `kind=archive`, champ `.sha256` |
+| adb | **aucun SHA-256 amont** : Google ne publie que des SHA-1 (`repository2-3.xml`, vérifié : 0 `sha256`) — le script recalcule le SHA-256 sur l'artefact téléchargé lui-même |
 
 ⚠️ **go.dev ne publie PAS de `.sha256` par archive.**
 `https://go.dev/dl/go<V>.linux-amd64.tar.gz.sha256` renvoie une **page HTML**,
 pas un hash (vérifié). Toute implémentation qui suppose cette URL écrit du HTML
 dans `GO_SHA256`. Utiliser l'endpoint `?mode=json`.
+
+⚠️ **adb : la contre-vérification S-01 est triviale.** Le « checksum publié »
+étant le hash du téléchargement, `published == recalculé` par construction :
+la seule ancre est le pin dans le Dockerfile (relisible dans le diff Renovate,
+rejoué à chaque build contre le CDN Google). Documenté ici pour ne pas
+surévaluer la garantie pour cet outil.
 
 Avant d'écrire, le script ne se contente pas du checksum publié : il
 **retélécharge l'artefact et recalcule le SHA-256 en flux**, et n'écrit rien si

@@ -205,6 +205,26 @@ const TOOLS = [
     },
   },
   {
+    prefix: 'ADB',
+    label: 'Android Debug Bridge (platform-tools)',
+    aliases: ['adb', 'android-platform-tools', 'platform-tools'],
+    artifact: (v) =>
+      `https://dl.google.com/android/repository/platform-tools_r${v}-linux.zip`,
+    // Google ne publie AUCUN SHA-256 pour platform-tools (repository2-3.xml =
+    // SHA-1 uniquement). La valeur « publiée » est donc le SHA-256 recalculé
+    // sur l'artefact téléchargé : elle ancre le pin du Dockerfile, et S-01
+    // (retéléchargement + rehash) protège contre troncature/altération entre le
+    // bump et le build. Jamais éditée à la main : --write la recalcule.
+    upstream: async (v, tool) => {
+      const url = tool.artifact(v);
+      return {
+        url,
+        body: '(pas de checksum SHA-256 amont — hash du téléchargement)',
+        value: await computeSha256(url),
+      };
+    },
+  },
+  {
     prefix: 'GO',
     label: 'toolchain Go',
     aliases: ['go', 'golang', 'golang-version'],

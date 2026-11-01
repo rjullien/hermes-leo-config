@@ -41,7 +41,7 @@ démarre pas. La CI rejoue ce scénario (PATH standard, user `hermes`).
 
 ## Vérification des téléchargements (SHA-256)
 
-Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
+Les 6 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
 est accompagné d'un `ARG *_SHA256` **commité dans le repo**, et le `RUN`
 correspondant vérifie l'archive avec `sha256sum -c` **avant** de l'extraire
 (S-01). Une archive substituée en amont fait donc échouer le build, elle
@@ -164,7 +164,7 @@ Trivy CRITICAL :
 - **porte verte** → comparaison d'un *content-manifest* avec l'image `latest`
   déjà publiée : `dpkg-query -W` trié + freeze-like du venv
   `/opt/hermes/.venv` (`importlib.metadata`, pip est retiré de l'image) +
-  versions des 5 outils (et certifi vendored du Python outils). Le **digest
+  versions des 6 outils (et certifi vendored du Python outils). Le **digest
   d'image n'est pas utilisé** : un rebuild no-cache change toujours les
   timestamps de couches ;
 - manifeste **identique** → log `no change`, exit 0, **pas** de release (évite
@@ -185,12 +185,12 @@ Renovate publique). Config : `renovate.json`.
 
 | Dépendance | Délai avant PR | Automerge |
 |---|---|---|
-| Binaires (gws, gh, kubectl) | 3 jours | ✅ automerge |
+| Binaires (gws, gh, kubectl, devin, adb, go) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
 | Image de base `hermes-agent` | 7 jours | ✅ automerge |
 
 **Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
-dépendance** (gws, gh, kubectl, devin, go, hermes-agent, Actions). Il n'y a plus
+dépendance** (gws, gh, kubectl, devin, adb, go, hermes-agent, Actions). Il n'y a plus
 d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
 donc pas fusionnée automatiquement. **Il n'y a pas de vérification humaine en
 aval** : ArgoCD Image Updater déploie automatiquement chaque nouvelle release
@@ -202,7 +202,7 @@ build, le smoke test et la porte Trivy CRITICAL.
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
 (F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
-5 outils testés, scan sans nouvelle CRITICAL corrigible).
+6 outils testés, scan sans nouvelle CRITICAL corrigible).
 
 ⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
 `strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
