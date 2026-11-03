@@ -2,7 +2,7 @@ name: PR Validation (build + smoke + scan)
 
 # F-01 — Valide l'image sur chaque pull request SANS la pousser.
 # Objectif : aucune mise à jour de dépendance ne peut atteindre `main` sans
-# que le Dockerfile soit réellement construit, les 5 outils testés, et l'image
+# que le Dockerfile soit réellement construit, les 6 outils testés, et l'image
 # scannée. Ce workflow ne publie rien (push: false).
 
 on:
@@ -69,7 +69,7 @@ jobs:
       # moindre artefact non rehashé. Seule une indisponibilité PARTIELLE (réseau,
       # 5xx, throttling sur un amont) produit un avertissement — voir l'en-tête du
       # script.
-      - name: Vérifier les SHA-256 des 5 téléchargements
+      - name: Vérifier les SHA-256 des 6 téléchargements
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -101,7 +101,7 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Smoke test — les 5 outils répondent
+      - name: Smoke test — les 6 outils répondent
         run: |
           set -euo pipefail
           img=hermes-leo-custom:pr-validation
@@ -110,6 +110,9 @@ jobs:
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
           docker run --rm --entrypoint adb     "$img" version
+          docker run --rm --entrypoint entire  "$img" --version
+          docker run --rm --entrypoint entire  "$img" graph --help
+          docker run --rm --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
 
@@ -192,6 +195,11 @@ jobs:
           test "$arch" = "amd64"
 
       # Rapport complet HIGH/CRITICAL — informatif, ne bloque jamais.
+      # Trivy exporte les couches non compressées : avec les binaires d'outils
+      # (entire + plugins ~160 Mo), le disque du runner GitHub explose sans ça.
+      - name: Libérer la place disque du runner (export des couches Trivy)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+
       - name: Scan de vulnérabilités — rapport (informatif)
         # Informatif : un échec d'infra Trivy (ex. rate-limit du registre de la DB) ne doit pas rougir la CI.
         # La porte bloquante ci-dessous reste stricte.

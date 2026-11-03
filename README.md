@@ -12,6 +12,7 @@ outils agents absents de la base.
 | **gh** (GitHub CLI) | 2.99.0 | Issues, PRs, releases |
 | **kubectl** | 1.37.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
 | **adb** (platform-tools) | 37.0.1 | Android Debug Bridge — tablettes murales, caméras, dépannage Android |
+| **entire** (CLI + plugins graph/brain) | 0.12.2 | Carte de repo précomputée + mémoire d'agents — 100 % local, aucune clé API |
 | **go** (toolchain) | 1.27.0 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
 
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
@@ -41,7 +42,7 @@ démarre pas. La CI rejoue ce scénario (PATH standard, user `hermes`).
 
 ## Vérification des téléchargements (SHA-256)
 
-Les 5 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
+Les 6 binaires ne sont pas téléchargés « à l'aveugle ». Chaque `ARG *_VERSION`
 est accompagné d'un `ARG *_SHA256` **commité dans le repo**, et le `RUN`
 correspondant vérifie l'archive avec `sha256sum -c` **avant** de l'extraire
 (S-01). Une archive substituée en amont fait donc échouer le build, elle
@@ -165,7 +166,7 @@ Trivy CRITICAL :
 - **porte verte** → comparaison d'un *content-manifest* avec l'image `latest`
   déjà publiée : `dpkg-query -W` trié + freeze-like du venv
   `/opt/hermes/.venv` (`importlib.metadata`, pip est retiré de l'image) +
-  versions des 5 outils (et certifi vendored du Python outils). Le **digest
+  versions des 6 outils (et certifi vendored du Python outils). Le **digest
   d'image n'est pas utilisé** : un rebuild no-cache change toujours les
   timestamps de couches ;
 - manifeste **identique** → log `no change`, exit 0, **pas** de release (évite
@@ -186,12 +187,12 @@ Renovate publique). Config : `renovate.json`.
 
 | Dépendance | Délai avant PR | Automerge |
 |---|---|---|
-| Binaires (gws, gh, kubectl, adb, go) | 3 jours | ✅ automerge |
+| Binaires (gws, gh, kubectl, adb, entire, go) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
 | Image de base `hermes-agent` | 7 jours | ✅ automerge |
 
 **Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
-dépendance** (gws, gh, kubectl, adb, go, hermes-agent, Actions). Il n'y a plus
+dépendance** (gws, gh, kubectl, adb, entire, go, hermes-agent, Actions). Il n'y a plus
 d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
 donc pas fusionnée automatiquement. **Il n'y a pas de vérification humaine en
 aval** : ArgoCD Image Updater déploie automatiquement chaque nouvelle release
@@ -203,7 +204,7 @@ build, le smoke test et la porte Trivy CRITICAL.
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
 (F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
-5 outils testés, scan sans nouvelle CRITICAL corrigible).
+6 outils testés, scan sans nouvelle CRITICAL corrigible).
 
 ⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
 `strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
@@ -289,14 +290,14 @@ Config locale des credentials gws sur le pod :
 ## Architecture
 
 ⚠️ **Image `linux/amd64` uniquement (P-03).** Les binaires téléchargés dans le
-`Dockerfile` (gws, gh, kubectl, adb, go) ciblent explicitement `x86_64`/`amd64`,
+`Dockerfile` (gws, gh, kubectl, adb, entire, go) ciblent explicitement `x86_64`/`amd64`,
 et `build.yml` ne construit que `platforms: linux/amd64`. L'image de base
 `hermes-agent` publie aussi une variante `arm64`, mais cette image custom ne la
 couvre pas. Le pod `hermes-leo` doit donc tourner sur un nœud amd64.
 
 Pour ajouter arm64 : vérifier la disponibilité de chaque binaire en arm64,
 paramétrer les URLs via `TARGETARCH`, ajouter `linux/arm64` à `platforms`, puis
-valider les 5 outils sur arm64 (réel ou émulé) via le workflow PR (F-01).
+valider les 6 outils sur arm64 (réel ou émulé) via le workflow PR (F-01).
 
 ## Déploiement
 

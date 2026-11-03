@@ -18,3 +18,10 @@ CVE-2026-63374
 # Vu le 2026-09-30. Réévaluer au prochain bump de base.
 
 CVE-2026-102268
+
+# CVE-2026-99083 : linux-libc-dev (en-têtes libc Debian) hérité de l'image de
+# base hermes-agent v0.22.5. La couche de ce dépôt (binaires Go statiques) ne
+# peut pas le corriger : corrigé dans un paquet Debian ultérieur, donc au
+# prochain bump de base (Renovate). Vu le 2026-11-03.
+
+CVE-2026-99083

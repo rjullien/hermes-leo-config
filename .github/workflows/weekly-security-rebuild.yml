@@ -54,7 +54,7 @@ jobs:
       # Garde légère : le build no-cache rejoue déjà `sha256sum -c` sur chaque
       # artefact. Pas de --verify-artifacts ici (coût réseau déjà payé par le
       # rebuild).
-      - name: Vérifier les SHA-256 des 5 téléchargements
+      - name: Vérifier les SHA-256 des 6 téléchargements
         run: node scripts/sync-download-checksums.mjs --check
 
       - name: Set up Docker Buildx
@@ -83,7 +83,7 @@ jobs:
           no-cache: true
           platforms: linux/amd64
 
-      - name: Smoke test — les 5 outils répondent
+      - name: Smoke test — les 6 outils répondent
         run: |
           set -euo pipefail
           img="${{ env.LOCAL_TAG }}"
@@ -92,6 +92,9 @@ jobs:
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
           docker run --rm --entrypoint adb     "$img" version
+          docker run --rm --entrypoint entire  "$img" --version
+          docker run --rm --entrypoint entire  "$img" graph --help
+          docker run --rm --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
 
@@ -155,6 +158,11 @@ jobs:
           Image.new('RGB', (4, 4), color=(0, 128, 255))
           print('imports_ok')
           "
+
+      # Trivy exporte les couches non compressées : avec les binaires d'outils
+      # (entire + plugins ~160 Mo), le disque du runner GitHub explose sans ça.
+      - name: Libérer la place disque du runner (export des couches Trivy)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
 
       - name: Scan de vulnérabilités — rapport (informatif)
         continue-on-error: true
@@ -279,6 +287,7 @@ jobs:
           gh --version 2>&1 | head -n 1
           kubectl version --client 2>&1 | head -n 2
           adb version 2>&1 | head -n 1
+          entire --version 2>&1 | head -n 1
           go version 2>&1 | head -n 1
           /usr/local/bin/python3 -c 'import pip._vendor.certifi as c; print("vendor-certifi", c.__version__)' 2>&1 | head -n 1
           SCRIPT

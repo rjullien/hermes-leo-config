@@ -6,6 +6,7 @@
 #   - gh       : GitHub CLI (issues, PRs, releases)
 #   - kubectl  : debug cluster (lecture pods/logs)
 #   - adb      : Android Debug Bridge (tablettes murales, caméras, dépannage — depuis platform-tools Google)
+#   - entire   : CLI Entire + plugins graph/brain (carte de repo précomputée, mémoire d'agents)
 #   - go       : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker, etc.)
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
@@ -24,7 +25,7 @@ FROM nousresearch/hermes-agent:v0.22.5@sha256:9c5561579f3ffdf333401797094ac3a743
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
-# (gws → gh → kubectl → adb → go). Ainsi, changer la version d'un outil
+# (gws → gh → kubectl → adb → entire → go). Ainsi, changer la version d'un outil
 # n'invalide QUE sa couche et les suivantes, pas les précédentes.
 # Chaque outil a un SHA-256 attendu (S-01) : téléchargement vérifié AVANT
 # extraction. Renovate maintient version + digest (voir renovate.json).
@@ -145,6 +146,32 @@ RUN curl -fsSL -o /tmp/platform-tools.zip https://dl.google.com/android/reposito
     && /usr/local/bin/python3 -m zipfile -e /tmp/platform-tools.zip /tmp/pt \
     && install -m 0755 /tmp/pt/platform-tools/adb /usr/local/bin/adb \
     && rm -rf /tmp/pt /tmp/platform-tools.zip
+
+# --- entire : CLI Entire + plugins graph & brain (entireio, licence MIT) ---
+# entire-graph : carte de repo précomputée (tree-sitter, 36 langages, 100 % local,
+# zéro réseau/zéro clé) ; entire-brain : mémoire BM25 des sessions/docs.
+# Aucun secret (règle no-secrets). ENTIRE_PLUGIN_DIR en SYSTEME (pas $HOME) pour
+# que les plugins soient visibles par tous les utilisateurs du conteneur.
+# S-01 : le CLI lui-même vérifie le checksums.txt de chaque release de plugin
+# (refus si absent) — donc pas d'ARG _SHA256 pour les plugins, contrairement aux
+# outils téléchargés en curl direct ci-dessus. --pin = versions figées (builds
+# reproductibles), bumpées par Renovate. Prérequis : git ≥ 2.36 (présent).
+# renovate: datasource=github-releases depName=entireio/cli
+ARG ENTIRE_CLI_VERSION=0.12.2
+ARG ENTIRE_CLI_SHA256=bfc5c8d5b599f328775b89b735db020c963e307b6a324fc30ce371fe8fa789e8
+# renovate: datasource=github-releases depName=entireio/entire-graph
+ARG ENTIRE_GRAPH_VERSION=0.6.0
+# renovate: datasource=github-releases depName=entireio/entire-brain
+ARG ENTIRE_BRAIN_VERSION=0.4.0
+ENV ENTIRE_PLUGIN_DIR=/usr/local/share/entire
+RUN curl -fsSL -o /tmp/entire.tar.gz https://github.com/entireio/cli/releases/download/v${ENTIRE_CLI_VERSION}/entire_linux_amd64.tar.gz \
+    && echo "${ENTIRE_CLI_SHA256}  /tmp/entire.tar.gz" | sha256sum -c - \
+    && tar xz -C /tmp -f /tmp/entire.tar.gz \
+    && install -m 0755 /tmp/entire /usr/local/bin/entire \
+    && install -m 0755 /tmp/git-remote-entire /usr/local/bin/git-remote-entire \
+    && rm -rf /tmp/entire /tmp/git-remote-entire /tmp/completions /tmp/LICENSE /tmp/README.md /tmp/entire.tar.gz \
+    && entire plugin install graph --yes --pin v${ENTIRE_GRAPH_VERSION} \
+    && entire plugin install brain --yes --pin v${ENTIRE_BRAIN_VERSION}
 
 # --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
 # Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire
