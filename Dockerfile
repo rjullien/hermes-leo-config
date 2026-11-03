@@ -171,7 +171,8 @@ RUN curl -fsSL -o /tmp/entire.tar.gz https://github.com/entireio/cli/releases/do
     && install -m 0755 /tmp/git-remote-entire /usr/local/bin/git-remote-entire \
     && rm -rf /tmp/entire /tmp/git-remote-entire /tmp/completions /tmp/LICENSE /tmp/README.md /tmp/entire.tar.gz \
     && entire plugin install graph --yes --pin v${ENTIRE_GRAPH_VERSION} \
-    && entire plugin install brain --yes --pin v${ENTIRE_BRAIN_VERSION}
+    && entire plugin install brain --yes --pin v${ENTIRE_BRAIN_VERSION} \
+    && chmod -R a+rX /usr/local/share/entire
 
 # --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
 # Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire
