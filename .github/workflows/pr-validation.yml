@@ -110,9 +110,10 @@ jobs:
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
           docker run --rm --entrypoint adb     "$img" version
-          docker run --rm --entrypoint entire  "$img" --version
-          docker run --rm --entrypoint entire  "$img" graph --help
-          docker run --rm --entrypoint entire  "$img" brain --help
+          docker run --rm --user 1000:1000 --entrypoint entire  "$img" --version
+          docker run --rm --user 1000:1000 --entrypoint entire  "$img" plugin list
+          docker run --rm --user 1000:1000 --entrypoint entire  "$img" graph --help
+          docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
 
