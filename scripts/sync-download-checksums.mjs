@@ -3,7 +3,8 @@
 // avec les `ARG <OUTIL>_VERSION` correspondants.
 //
 // POURQUOI CE SCRIPT EXISTE
-// Le Dockerfile épingle, pour chacun des 5 outils (gws, gh, kubectl, adb, go),
+// Le Dockerfile épingle, pour chacun des 6 outils (gws, gh, kubectl, adb,
+// entire, go),
 // une version ET le SHA-256 attendu de l'artefact téléchargé (finding S-01 :
 // le téléchargement est vérifié AVANT extraction). Renovate sait bumper l'ARG
 // version, mais aucune des datasources utilisées (github-releases, github-tags,
@@ -208,6 +209,19 @@ const TOOLS = [
         body: '(pas de checksum SHA-256 amont — hash du téléchargement)',
         value: await computeSha256(url),
       };
+    },
+  },
+  {
+    prefix: 'ENTIRE_CLI',
+    label: 'Entire CLI (plugins graph/brain vérifiés par le CLI)',
+    aliases: ['entire', 'entire-cli', 'entireio/cli'],
+    artifact: (v) =>
+      `https://github.com/entireio/cli/releases/download/v${v}/entire_linux_amd64.tar.gz`,
+    upstream: async (v) => {
+      const url = `https://github.com/entireio/cli/releases/download/v${v}/checksums.txt`;
+      const body = await httpText(url);
+      const m = body.match(/^([0-9a-f]{64})\s+entire_linux_amd64\.tar\.gz\s*$/m);
+      return { url, body, value: m ? m[1] : undefined };
     },
   },
   {
@@ -638,10 +652,10 @@ Options :
   --write             réécrit la ligne ARG <OUTIL>_SHA256 des outils concernés.
                       Tout échec est fatal et n'écrit rien.
   --only=<outil>      limite le traitement à un outil. Accepte gws, gh, kubectl,
-                      adb, go ainsi que les depName Renovate (googleworkspace/cli,
-                      cli/cli, kubernetes/kubernetes, golang,
-                      android-platform-tools). Une valeur inconnue sort en 0 sans
-                      rien écrire.
+                      adb, entire, go ainsi que les depName Renovate
+                      (googleworkspace/cli, cli/cli, kubernetes/kubernetes,
+                      golang, android-platform-tools, entireio/cli). Une valeur
+                      inconnue sort en 0 sans rien écrire.
   --verify-artifacts  retélécharge et rehashe l'artefact de CHAQUE outil, même
                       quand le checksum commité est déjà à jour (~140 Mo). Sert à
                       rejouer la contre-vérification S-01 que le cache de couches

@@ -2,7 +2,7 @@ name: PR Validation (build + smoke + scan)
 
 # F-01 — Valide l'image sur chaque pull request SANS la pousser.
 # Objectif : aucune mise à jour de dépendance ne peut atteindre `main` sans
-# que le Dockerfile soit réellement construit, les 5 outils testés, et l'image
+# que le Dockerfile soit réellement construit, les 6 outils testés, et l'image
 # scannée. Ce workflow ne publie rien (push: false).
 
 on:
@@ -101,7 +101,7 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Smoke test — les 5 outils répondent
+      - name: Smoke test — les 6 outils répondent
         run: |
           set -euo pipefail
           img=hermes-leo-custom:pr-validation
@@ -110,6 +110,9 @@ jobs:
           docker run --rm --entrypoint gh      "$img" --version
           docker run --rm --entrypoint kubectl "$img" version --client
           docker run --rm --entrypoint adb     "$img" version
+          docker run --rm --entrypoint entire  "$img" --version
+          docker run --rm --entrypoint entire  "$img" graph --help
+          docker run --rm --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
           echo "::endgroup::"
 
