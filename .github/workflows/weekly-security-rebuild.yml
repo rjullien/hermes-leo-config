@@ -54,7 +54,7 @@ jobs:
       # Garde légère : le build no-cache rejoue déjà `sha256sum -c` sur chaque
       # artefact. Pas de --verify-artifacts ici (coût réseau déjà payé par le
       # rebuild).
-      - name: Vérifier les SHA-256 des 5 téléchargements
+      - name: Vérifier les SHA-256 des 6 téléchargements
         run: node scripts/sync-download-checksums.mjs --check
 
       - name: Set up Docker Buildx
@@ -158,6 +158,11 @@ jobs:
           Image.new('RGB', (4, 4), color=(0, 128, 255))
           print('imports_ok')
           "
+
+      # Trivy exporte les couches non compressées : avec les binaires d'outils
+      # (entire + plugins ~160 Mo), le disque du runner GitHub explose sans ça.
+      - name: Libérer la place disque du runner (export des couches Trivy)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
 
       - name: Scan de vulnérabilités — rapport (informatif)
         continue-on-error: true

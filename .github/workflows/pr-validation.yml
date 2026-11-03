@@ -69,7 +69,7 @@ jobs:
       # moindre artefact non rehashé. Seule une indisponibilité PARTIELLE (réseau,
       # 5xx, throttling sur un amont) produit un avertissement — voir l'en-tête du
       # script.
-      - name: Vérifier les SHA-256 des 5 téléchargements
+      - name: Vérifier les SHA-256 des 6 téléchargements
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -195,6 +195,11 @@ jobs:
           test "$arch" = "amd64"
 
       # Rapport complet HIGH/CRITICAL — informatif, ne bloque jamais.
+      # Trivy exporte les couches non compressées : avec les binaires d'outils
+      # (entire + plugins ~160 Mo), le disque du runner GitHub explose sans ça.
+      - name: Libérer la place disque du runner (export des couches Trivy)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+
       - name: Scan de vulnérabilités — rapport (informatif)
         # Informatif : un échec d'infra Trivy (ex. rate-limit du registre de la DB) ne doit pas rougir la CI.
         # La porte bloquante ci-dessous reste stricte.
