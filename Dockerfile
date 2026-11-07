@@ -162,7 +162,7 @@ ARG ENTIRE_CLI_SHA256=bfc5c8d5b599f328775b89b735db020c963e307b6a324fc30ce371fe8f
 # renovate: datasource=github-releases depName=entireio/entire-graph
 ARG ENTIRE_GRAPH_VERSION=0.6.0
 # renovate: datasource=github-releases depName=entireio/entire-brain
-ARG ENTIRE_BRAIN_VERSION=0.4.0
+ARG ENTIRE_BRAIN_VERSION=0.5.1
 ENV ENTIRE_PLUGIN_DIR=/usr/local/share/entire
 RUN curl -fsSL -o /tmp/entire.tar.gz https://github.com/entireio/cli/releases/download/v${ENTIRE_CLI_VERSION}/entire_linux_amd64.tar.gz \
     && echo "${ENTIRE_CLI_SHA256}  /tmp/entire.tar.gz" | sha256sum -c - \
