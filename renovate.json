@@ -33,8 +33,8 @@
       "automergeType": "pr"
     },
     {
-      "description": "Binaires outils (gws, gh, kubectl, adb, entire, go) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici).",
-      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "golang", "android-platform-tools", "entireio/cli", "entireio/entire-graph", "entireio/entire-brain"],
+      "description": "Binaires outils (gws, gh, kubectl, adb, entire, go, pandoc) et paquets pip épinglés (matplotlib) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici).",
+      "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "golang", "android-platform-tools", "entireio/cli", "entireio/entire-graph", "entireio/entire-brain", "jgm/pandoc", "matplotlib"],
       "minimumReleaseAge": "3 days",
       "automerge": true,
       "automergeType": "pr",
