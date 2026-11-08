@@ -99,6 +99,16 @@ RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
            -o -name 'pyjwt-2.13.*' -o -name 'PyJWT-2.13.*' \) \
         -prune -exec rm -rf {} + 2>/dev/null || true
 
+# --- matplotlib : graphiques Python (demande Camille, 08/11/2026) ---
+# Paquet PyPI épinglé par version, installé dans le Python outils
+# (/usr/local/bin/python3 — celui des scripts agents). Pas de ARG _SHA256 :
+# aucun artefact n'est téléchargé par le Dockerfile (wheel PyPI) ; l'ancre est
+# le pin de version + la datasource pypi, tenue par Renovate.
+# renovate: datasource=pypi depName=matplotlib
+ARG MATPLOTLIB_VERSION=3.11.2
+RUN /usr/local/bin/python3 -m pip install --no-cache-dir "matplotlib==${MATPLOTLIB_VERSION}" \
+    && rm -rf /root/.cache/pip
+
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
 # Remplace himalaya pour tout le Gmail automatisé (API native, OAuth standard)
 # Télécharge dans un fichier temporaire, vérifie le SHA-256, PUIS extrait.
@@ -187,6 +197,21 @@ RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.t
     && rm -f /tmp/go.tar.gz \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+# --- pandoc : convertisseur de documents (Markdown → docx/epub…) — demande Camille ---
+# Télécharge dans un fichier temporaire, vérifie le SHA-256, PUIS extrait.
+# jgm/pandoc ne publie AUCUN SHA-256 par release : la valeur « publiée » est le
+# SHA-256 recalculé sur l'artefact téléchargé (même logique que adb) — jamais
+# éditée à la main, `--write` la recalcule. S-01 = trivial (le pin est le seul
+# ancre), à documenter comme tel dans AGENTS.md.
+# renovate: datasource=github-releases depName=jgm/pandoc
+ARG PANDOC_VERSION=3.13
+ARG PANDOC_SHA256=38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389
+RUN curl -fsSL -o /tmp/pandoc.tar.gz https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-amd64.tar.gz \
+    && echo "${PANDOC_SHA256}  /tmp/pandoc.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/pandoc.tar.gz -C /tmp \
+    && install -m 0755 /tmp/pandoc-${PANDOC_VERSION}/bin/pandoc /usr/local/bin/pandoc \
+    && rm -rf /tmp/pandoc-${PANDOC_VERSION} /tmp/pandoc.tar.gz
 
 # --- hermes sur le PATH « standard » (compat K8s / PATH écrasé) ---
 # Depuis v0.21.6, main-wrapper.sh et dashboard/run n'activent plus le venv

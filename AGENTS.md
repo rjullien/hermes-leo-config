@@ -25,7 +25,7 @@ les ConfigMaps (vps-infra), pas dans l'image.
    Si un retrait est décidé : **retirer l'outil de la table `TOOLS` de
    `scripts/sync-download-checksums.mjs` dans le MÊME commit**. Le script exige
    le couple `ARG <OUTIL>_VERSION` / `ARG <OUTIL>_SHA256` de chaque outil qu'il
-   connaît (fail-closed volontaire) : sinon `--check` échoue pour les cinq, avec
+   connaît (fail-closed volontaire) : sinon `--check` échoue pour les sept, avec
    un message qui nomme l'outil manquant. Idem si l'URL téléchargée par le `RUN`
    change (renommage d'asset amont, variante `-musl`…) : le script recroise son
    URL avec celle du Dockerfile et refuse de travailler si elles divergent, pour
@@ -52,7 +52,7 @@ les ConfigMaps (vps-infra), pas dans l'image.
    node scripts/sync-download-checksums.mjs --check   # CI : sort 1 si un SHA est périmé
    node scripts/sync-download-checksums.mjs --write   # réécrit les lignes _SHA256 périmées
    node scripts/sync-download-checksums.mjs --write --only=golang   # un seul outil
-   node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 5 artefacts
+   node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 7 artefacts
    ```
    Le script est **sans dépendance** (Node + stdlib uniquement, pas de
    `package.json`, pas de `curl`/`jq`) parce qu'il doit tourner dans le
@@ -206,7 +206,7 @@ piste : la rejouer depuis un autre réseau tranche.
 utilise `cache-from: type=gha` : la couche `RUN curl … && sha256sum -c` n'est
 rejouée que si son `ARG` version ou SHA change. Sur une PR qui ne touche pas ces
 lignes, aucun octet d'artefact n'est rehashé. D'où `--verify-artifacts`, passé par
-`pr-validation.yml` sur `push: main` uniquement : il rehashe les 5 artefacts
+`pr-validation.yml` sur `push: main` uniquement : il rehashe les 7 artefacts
 (~140 Mo) une fois par merge. Ne pas l'ajouter au chemin PR (coût réseau par PR)
 ni le retirer de `push: main` (c'est la seule rejouée régulière de la
 contre-vérification S-01). Ce mode **n'a de valeur que complet** : il sort 1 dès
@@ -251,7 +251,7 @@ toute retouche d'une ligne `# renovate:` :
 docker run --rm -v "$PWD":/tmp/renovate/repo -e RENOVATE_PLATFORM=local \
   -e RENOVATE_DRY_RUN=lookup -e LOG_LEVEL=debug -w /tmp/renovate/repo \
   ghcr.io/renovatebot/renovate:44.61.6 renovate 2>&1 | grep 'flattened updates'
-# doit lister les 6 outils concernés, pas 5
+# doit lister les 7 outils concernés, pas 6
 ```
 
 Sources amont du checksum, par outil (utilisées par le script) :
@@ -264,6 +264,14 @@ Sources amont du checksum, par outil (utilisées par le script) :
 | go | `https://go.dev/dl/?mode=json&include=all` → entrée `.version == "go<V>"`, fichier `os=linux` `arch=amd64` `kind=archive`, champ `.sha256` |
 | adb | **aucun SHA-256 amont** : Google ne publie que des SHA-1 (`repository2-3.xml`, vérifié : 0 `sha256`) — le script recalcule le SHA-256 sur l'artefact téléchargé lui-même |
 | entire | `https://github.com/entireio/cli/releases/download/v<V>/checksums.txt` → ligne `entire_linux_amd64.tar.gz` |
+| pandoc | **aucun SHA-256 amont** : jgm/pandoc ne publie pas de fichier checksums (vérifié sur la release) — le script recalcule le SHA-256 sur l'artefact téléchargé lui-même (même logique que adb) |
+
+⚠️ **matplotlib : paquet pip, pas d'ARG `_SHA256`, c'est voulu.** Aucun artefact
+n'est téléchargé par le Dockerfile (wheel PyPI) : l'ancre est le pin de version
+(`ARG MATPLOTLIB_VERSION` + `datasource=pypi`, tenue par Renovate) — comme les
+pins de sécurité pip du bloc certifi/Pillow. La table `TOOLS` ne le connaît pas
+volontairement : le script ne gère que les téléchargements curl vérifiés par
+`sha256sum -c`.
 
 ⚠️ **Plugins Entire (graph, brain) : pas d'ARG `_SHA256`, c'est voulu.** Ils ne
 sont pas téléchargés en curl direct : `entire plugin install --pin` récupère

@@ -3,8 +3,8 @@
 // avec les `ARG <OUTIL>_VERSION` correspondants.
 //
 // POURQUOI CE SCRIPT EXISTE
-// Le Dockerfile épingle, pour chacun des 6 outils (gws, gh, kubectl, adb,
-// entire, go),
+// Le Dockerfile épingle, pour chacun des 7 outils (gws, gh, kubectl, adb,
+// entire, go, pandoc),
 // une version ET le SHA-256 attendu de l'artefact téléchargé (finding S-01 :
 // le téléchargement est vérifié AVANT extraction). Renovate sait bumper l'ARG
 // version, mais aucune des datasources utilisées (github-releases, github-tags,
@@ -222,6 +222,25 @@ const TOOLS = [
       const body = await httpText(url);
       const m = body.match(/^([0-9a-f]{64})\s+entire_linux_amd64\.tar\.gz\s*$/m);
       return { url, body, value: m ? m[1] : undefined };
+    },
+  },
+  {
+    prefix: 'PANDOC',
+    label: 'pandoc (convertisseur de documents)',
+    aliases: ['pandoc', 'jgm/pandoc'],
+    artifact: (v) =>
+      `https://github.com/jgm/pandoc/releases/download/${v}/pandoc-${v}-linux-amd64.tar.gz`,
+    // jgm/pandoc ne publie AUCUN SHA-256 par release (pas de fichier checksums).
+    // Même logique que adb : la valeur « publiée » est le SHA-256 recalculé sur
+    // l'artefact téléchargé — elle ancre le pin du Dockerfile, jamais éditée à
+    // la main (--write la recalcule).
+    upstream: async (v, tool) => {
+      const url = tool.artifact(v);
+      return {
+        url,
+        body: '(pas de checksum SHA-256 amont — hash du téléchargement)',
+        value: await computeSha256(url),
+      };
     },
   },
   {
@@ -852,9 +871,9 @@ async function main() {
   );
 
   // AUCUNE valeur publiée établie : la garde n'a rien vérifié du tout. Un runner
-  // throttlé sur les 5 amonts rendait sinon un vert indiscernable d'un vrai
-  // contrôle. Un amont sur cinq reste un avertissement (l'image est construisible
-  // et les 4 autres ont bien été vérifiés) ; les cinq sont un échec.
+  // throttlé sur les amonts rendait sinon un vert indiscernable d'un vrai
+  // contrôle. Un amont indisponible reste un avertissement (l'image est
+  // construisible et les autres ont bien été vérifiés) ; tous indisponibles = échec.
   const nothingVerified = unverified > 0 && unverified === selected.length;
   if (nothingVerified) {
     console.error(

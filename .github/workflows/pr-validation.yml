@@ -2,7 +2,7 @@ name: PR Validation (build + smoke + scan)
 
 # F-01 — Valide l'image sur chaque pull request SANS la pousser.
 # Objectif : aucune mise à jour de dépendance ne peut atteindre `main` sans
-# que le Dockerfile soit réellement construit, les 6 outils testés, et l'image
+# que le Dockerfile soit réellement construit, les 7 outils (+ matplotlib) testés, et l'image
 # scannée. Ce workflow ne publie rien (push: false).
 
 on:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     # Borne dure du job (le défaut GitHub est de 6 h). La garde checksums qui
     # précède le build fait du réseau avec retries (3 tentatives, timeout 60 s
-    # par requête) et rehashe les 5 artefacts sur `push: main` ; le script porte
+    # par requête) et rehashe les 7 artefacts sur `push: main` ; le script porte
     # son propre budget global (10 min en `--check`, 20 min avec
     # `--verify-artifacts`), ce cap est le filet au-dessus : 20 min de garde au
     # pire + un build à froid + les 2 scans Trivy doivent tenir dedans.
@@ -59,7 +59,7 @@ jobs:
       # SHA change. Sur une PR qui ne touche pas ces lignes, aucun octet
       # d'artefact n'est donc rehashé, ni par la garde ni par le build.
       #
-      # SUR `push: main` : --verify-artifacts rehashe les 5 artefacts (~140 Mo)
+      # SUR `push: main` : --verify-artifacts rehashe les 7 artefacts (~140 Mo)
       # pour rejouer la contre-vérification S-01 que le cache de couches ne
       # rejoue pas. Un run par merge, pas un par PR.
       #
@@ -101,7 +101,7 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Smoke test — les 6 outils répondent
+      - name: Smoke test — les 7 outils (+ matplotlib) répondent
         run: |
           set -euo pipefail
           img=hermes-leo-custom:pr-validation
@@ -115,6 +115,8 @@ jobs:
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" graph --help
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
+          docker run --rm --entrypoint pandoc  "$img" --version
+          docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib', matplotlib.__version__)"
           echo "::endgroup::"
 
       # Garde anti-régression du crash prod v0.21.6 : si `hermes` n'est plus

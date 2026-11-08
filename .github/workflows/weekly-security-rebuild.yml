@@ -83,7 +83,7 @@ jobs:
           no-cache: true
           platforms: linux/amd64
 
-      - name: Smoke test — les 6 outils répondent
+      - name: Smoke test — les 7 outils (+ matplotlib) répondent
         run: |
           set -euo pipefail
           img="${{ env.LOCAL_TAG }}"
@@ -97,6 +97,8 @@ jobs:
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" graph --help
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
+          docker run --rm --entrypoint pandoc  "$img" --version
+          docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib', matplotlib.__version__)"
           echo "::endgroup::"
 
       - name: Smoke test — hermes résolvable (PATH runtime typique K8s)

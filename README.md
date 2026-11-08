@@ -71,7 +71,7 @@ bump fait échouer le build. Le délai avant merge automatique reste
 ```bash
 node scripts/sync-download-checksums.mjs --check   # vérifie, sort 1 si un SHA est périmé
 node scripts/sync-download-checksums.mjs --write   # resynchronise les lignes ARG *_SHA256
-node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 5 artefacts
+node scripts/sync-download-checksums.mjs --check --verify-artifacts   # + rehashe les 7 artefacts
 ```
 
 Le script est **sans aucune dépendance** (Node + bibliothèque standard, ni
@@ -102,7 +102,7 @@ Nuance sur le raccourci « pas de retéléchargement » : le `sha256sum -c` du
 utilise `cache-from: type=gha`, donc la couche `RUN curl … && sha256sum -c` n'est
 rejouée que lorsque son `ARG` version ou SHA change. Sur une PR qui ne touche pas
 ces lignes, aucun octet d'artefact n'est rehashé. C'est pourquoi la CI passe
-`--verify-artifacts` sur `push: main` : les 5 artefacts (~140 Mo) y sont
+`--verify-artifacts` sur `push: main` : les 7 artefacts y sont
 retéléchargés et rehashés, une fois par merge plutôt qu'une fois par PR. Ce mode
 échoue s'il n'a pas pu rehasher les 5, pour qu'un run post-merge vert veuille dire
 « tout a été revérifié » et rien d'autre.
@@ -166,7 +166,7 @@ Trivy CRITICAL :
 - **porte verte** → comparaison d'un *content-manifest* avec l'image `latest`
   déjà publiée : `dpkg-query -W` trié + freeze-like du venv
   `/opt/hermes/.venv` (`importlib.metadata`, pip est retiré de l'image) +
-  versions des 6 outils (et certifi vendored du Python outils). Le **digest
+  versions des 7 outils (et certifi vendored du Python outils). Le **digest
   d'image n'est pas utilisé** : un rebuild no-cache change toujours les
   timestamps de couches ;
 - manifeste **identique** → log `no change`, exit 0, **pas** de release (évite
@@ -187,12 +187,12 @@ Renovate publique). Config : `renovate.json`.
 
 | Dépendance | Délai avant PR | Automerge |
 |---|---|---|
-| Binaires (gws, gh, kubectl, adb, entire, go) | 3 jours | ✅ automerge |
+| Binaires (gws, gh, kubectl, adb, entire, go, pandoc) + pip (matplotlib) | 3 jours | ✅ automerge |
 | Actions GitHub du repo | — | ✅ automerge |
 | Image de base `hermes-agent` | 7 jours | ✅ automerge |
 
 **Règle sécurité** : l'automerge est accordé **explicitement, dépendance par
-dépendance** (gws, gh, kubectl, adb, entire, go, hermes-agent, Actions). Il n'y a plus
+**dépendance** (gws, gh, kubectl, adb, entire, go, pandoc, matplotlib, hermes-agent, Actions).
 d'automerge global par défaut (S-05) : une future dépendance non prévue n'est
 donc pas fusionnée automatiquement. **Il n'y a pas de vérification humaine en
 aval** : ArgoCD Image Updater déploie automatiquement chaque nouvelle release
@@ -204,7 +204,7 @@ build, le smoke test et la porte Trivy CRITICAL.
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
 (F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
-6 outils testés, scan sans nouvelle CRITICAL corrigible).
+7 outils + matplotlib testés, scan sans nouvelle CRITICAL corrigible).
 
 ⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
 `strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
@@ -290,14 +290,14 @@ Config locale des credentials gws sur le pod :
 ## Architecture
 
 ⚠️ **Image `linux/amd64` uniquement (P-03).** Les binaires téléchargés dans le
-`Dockerfile` (gws, gh, kubectl, adb, entire, go) ciblent explicitement `x86_64`/`amd64`,
+`Dockerfile` (gws, gh, kubectl, adb, entire, go, pandoc) ciblent explicitement `x86_64`/`amd64`,
 et `build.yml` ne construit que `platforms: linux/amd64`. L'image de base
 `hermes-agent` publie aussi une variante `arm64`, mais cette image custom ne la
 couvre pas. Le pod `hermes-leo` doit donc tourner sur un nœud amd64.
 
 Pour ajouter arm64 : vérifier la disponibilité de chaque binaire en arm64,
 paramétrer les URLs via `TARGETARCH`, ajouter `linux/arm64` à `platforms`, puis
-valider les 6 outils sur arm64 (réel ou émulé) via le workflow PR (F-01).
+valider les 7 outils sur arm64 (réel ou émulé) via le workflow PR (F-01).
 
 ## Déploiement
 
