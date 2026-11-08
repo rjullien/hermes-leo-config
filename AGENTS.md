@@ -271,7 +271,9 @@ n'est téléchargé par le Dockerfile (wheel PyPI) : l'ancre est le pin de versi
 (`ARG MATPLOTLIB_VERSION` + `datasource=pypi`, tenue par Renovate) — comme les
 pins de sécurité pip du bloc certifi/Pillow. La table `TOOLS` ne le connaît pas
 volontairement : le script ne gère que les téléchargements curl vérifiés par
-`sha256sum -c`.
+`sha256sum -c`. Il est installé dans les **deux** pythons runtime (Python outils
++ venv hermes) : le PATH peut résoudre l'un ou l'autre selon le contexte (pod
+K8s vs `docker run` à PATH par défaut) — les deux smokes le prouvent.
 
 ⚠️ **Plugins Entire (graph, brain) : pas d'ARG `_SHA256`, c'est voulu.** Ils ne
 sont pas téléchargés en curl direct : `entire plugin install --pin` récupère

@@ -116,7 +116,8 @@ jobs:
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
           docker run --rm --entrypoint go      "$img" version
           docker run --rm --entrypoint pandoc  "$img" --version
-          docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib', matplotlib.__version__)"
+          docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib venv', matplotlib.__version__)"
+          docker run --rm --user 1000:1000 --entrypoint /usr/local/bin/python3 "$img" -c "import matplotlib; print('matplotlib outils', matplotlib.__version__)"
           echo "::endgroup::"
 
       # Garde anti-régression du crash prod v0.21.6 : si `hermes` n'est plus

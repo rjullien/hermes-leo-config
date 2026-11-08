@@ -100,13 +100,21 @@ RUN echo "security-cache-bust=${SECURITY_CACHE_BUST}" \
         -prune -exec rm -rf {} + 2>/dev/null || true
 
 # --- matplotlib : graphiques Python (demande Camille, 08/11/2026) ---
-# Paquet PyPI épinglé par version, installé dans le Python outils
-# (/usr/local/bin/python3 — celui des scripts agents). Pas de ARG _SHA256 :
-# aucun artefact n'est téléchargé par le Dockerfile (wheel PyPI) ; l'ancre est
-# le pin de version + la datasource pypi, tenue par Renovate.
+# Paquet PyPI épinglé par version, installé dans les DEUX pythons runtime :
+# le Python outils (/usr/local/bin/python3, celui des scripts agents quand le
+# PATH est écrasé par K8s) ET le venv hermes (/opt/hermes/.venv, celui que
+# `python3` résout avec le PATH par défaut de l'image) — sinon l'import dépend
+# du contexte (piège constaté sur la PR : le smoke hors pod ne voyait pas le
+# paquet). Même hygiène que le bloc sécurité : pip retiré du venv après usage.
+# Pas de ARG _SHA256 : aucun artefact n'est téléchargé par le Dockerfile
+# (wheel PyPI) ; l'ancre est le pin de version + la datasource pypi, tenue par
+# Renovate.
 # renovate: datasource=pypi depName=matplotlib
 ARG MATPLOTLIB_VERSION=3.11.2
 RUN /usr/local/bin/python3 -m pip install --no-cache-dir "matplotlib==${MATPLOTLIB_VERSION}" \
+    && /opt/hermes/.venv/bin/python -m ensurepip --upgrade \
+    && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir "matplotlib==${MATPLOTLIB_VERSION}" \
+    && /opt/hermes/.venv/bin/python -m pip uninstall -y pip \
     && rm -rf /root/.cache/pip
 
 # --- gws : Google Workspace CLI (glibc/debian, pas de -musl) ---
