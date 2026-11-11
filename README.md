@@ -287,6 +287,39 @@ Config locale des credentials gws sur le pod :
 `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` + `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`
 (par compte : rene / leo séparés pour éviter la fuite de compte via le cache).
 
+## Passage de relais du gateway (RollingUpdate)
+
+Le gateway Hermes prend un `flock` exclusif sur `$HERMES_HOME/gateway.lock`
+(`/opt/data/gateway.lock`, sur le PVC) et s'arrête si un autre gateway le tient.
+En `RollingUpdate`, le nouveau pod ne pouvait donc jamais démarrer tant que
+l'ancien tournait, et l'ancien n'était jamais arrêté tant que le nouveau
+n'était pas Ready : d'où `strategy: Recreate` et une coupure de plusieurs
+minutes à chaque redémarrage.
+
+L'image ajoute deux scripts :
+
+- `/etc/cont-init.d/019-gateway-handoff` (entre `01-hermes-setup` et
+  `02-reconcile-profiles`) : si le verrou est tenu, écrit
+  `/run/hermes-handoff=standby` et attend (1 s entre deux essais) qu'il se
+  libère, puis écrit `active` et laisse `02` démarrer le gateway. Verrou libre
+  → passage immédiat (sans effet en `Recreate`).
+- `/usr/local/bin/hermes-probe` : `exit 0` en standby, sinon
+  `curl /health` sur `127.0.0.1:${API_SERVER_PORT:-8642}`.
+
+Côté Kubernetes : `strategy: RollingUpdate` (`maxSurge: 1`,
+`maxUnavailable: 0`) et les trois sondes en `exec: [hermes-probe]`. Le nouveau
+pod fait tout son préchauffage pendant que l'ancien répond, devient Ready en
+standby, K8s arrête l'ancien, le verrou se libère, le gateway démarre.
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `HERMES_HANDOFF_DISABLE` | `0` | `1` : script inactif, la sonde retombe sur `/health` (retour arrière) |
+| `HERMES_HANDOFF_MAX_WAIT` | `600` | Plafond d'attente (s) ; au-delà, on continue en loggant une erreur |
+
+Prérequis : les deux pods doivent voir le même verrou, donc le même noyau
+(PVC `local-path` RWO = même nœud). Avec un stockage réseau (RWX/NFS), le
+`flock` entre nœuds n'est pas garanti.
+
 ## Architecture
 
 ⚠️ **Image `linux/amd64` uniquement (P-03).** Les binaires téléchargés dans le

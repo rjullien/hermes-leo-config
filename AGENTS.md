@@ -10,6 +10,12 @@ Une couche fine sur l'image officielle `nousresearch/hermes-agent` :
 scripts, pas de venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et
 les ConfigMaps (vps-infra), pas dans l'image.
 
+Seule exception : les deux scripts de passage de relais du gateway
+(`rootfs/etc/cont-init.d/019-gateway-handoff`, `rootfs/usr/local/bin/hermes-probe`,
+voir README § « Passage de relais »). Toute modification de ces scripts doit
+incrémenter `ARG HERMES_HANDOFF_VERSION` dans le `Dockerfile`, sinon
+`auto-release.yml` ne crée ni release ni image.
+
 ## 🚫 Règles absolues
 
 1. **JAMAIS de secret dans ce repo** : pas de refresh_token, client_secret,
