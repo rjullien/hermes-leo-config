@@ -169,6 +169,23 @@ jobs:
           docker volume rm hermes-boot-data >/dev/null
           test "$ok" = 1
 
+      # Relais du gateway : scripts présents, et le cont-init passe tout de
+      # suite quand gateway.lock est libre (cas Recreate / volume vierge).
+      - name: Smoke test — relais gateway (019-gateway-handoff + hermes-probe)
+        run: |
+          set -euo pipefail
+          img=hermes-leo-custom:pr-validation
+          docker run --rm --entrypoint sh "$img" -c '
+            set -eu
+            test -x /etc/cont-init.d/019-gateway-handoff
+            test -x /usr/local/bin/hermes-probe
+            test -x /usr/bin/flock
+            echo standby > /run/hermes-handoff && /usr/local/bin/hermes-probe
+            echo active > /run/hermes-handoff
+            if /usr/local/bin/hermes-probe; then echo "probe OK sans gateway" >&2; exit 1; fi
+            echo handoff_probe_ok
+          '
+
       - name: Smoke test — certifi/Pillow/brotlicffi/PyJWT patchés + imports hermes
         run: |
           set -euo pipefail

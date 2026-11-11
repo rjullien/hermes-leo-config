@@ -233,5 +233,34 @@ RUN curl -fsSL -o /tmp/pandoc.tar.gz https://github.com/jgm/pandoc/releases/down
 # /usr/local/bin suffit donc à le rendre trouvable même si PATH est écrasé.
 RUN ln -sf /opt/hermes/bin/hermes /usr/local/bin/hermes
 
+# --- Passage de relais du gateway (RollingUpdate K8s sans coupure longue) ---
+# Exception assumée à « binaires seulement » : deux petits scripts shell, sans
+# dépendance (flock = util-linux et curl sont déjà dans la base).
+#   - /etc/cont-init.d/019-gateway-handoff : après 01-hermes-setup, AVANT
+#     02-reconcile-profiles (qui démarre le gateway). Si l'ancien pod tient
+#     encore $HERMES_HOME/gateway.lock (flock exclusif amont, PVC partagé), le
+#     pod passe en standby (Ready) et attend que le verrou se libère (SIGTERM
+#     de l'ancien pod par K8s), puis laisse démarrer le gateway. Sans autre pod
+#     (Recreate, redémarrage), il passe immédiatement. Désactivable par
+#     HERMES_HANDOFF_DISABLE=1 ; plafond HERMES_HANDOFF_MAX_WAIT (600 s).
+#   - /usr/local/bin/hermes-probe : sonde K8s (exec) = OK en standby, sinon
+#     /health du gateway.
+# S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 : pas de délai sur les cont-init (défaut
+# s6-overlay ≥ 3.1.6.2, fixé explicitement pour qu'une attente de relais ne
+# soit jamais tuée si la base changeait ce défaut).
+# HERMES_HANDOFF_VERSION : à incrémenter à chaque modification de ces scripts.
+# C'est un `ARG *_VERSION=` : auto-release.yml ne crée une release (donc une
+# image) que si une telle ligne ou le FROM change.
+ARG HERMES_HANDOFF_VERSION=1
+ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+COPY --chmod=0755 rootfs/etc/cont-init.d/019-gateway-handoff /etc/cont-init.d/019-gateway-handoff
+COPY --chmod=0755 rootfs/usr/local/bin/hermes-probe /usr/local/bin/hermes-probe
+RUN echo "hermes-handoff=${HERMES_HANDOFF_VERSION}" \
+    && test -x /usr/bin/flock \
+    && test -x /usr/bin/curl \
+    && test -x /command/s6-setuidgid \
+    && id hermes >/dev/null
+
 # Les scripts/venvs/skills restent sur le PVC (/opt/data) et les ConfigMaps —
-# l'image ne porte que les binaires système/tools.
+# l'image ne porte que les binaires système/tools (+ les 2 scripts de relais
+# ci-dessus).

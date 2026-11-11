@@ -1,0 +1,11 @@
+#!/bin/sh
+# Sonde K8s (startup/readiness/liveness) de hermes-leo.
+# - standby (cont-init 019-gateway-handoff attend gateway.lock) → OK : le pod
+#   est prêt à prendre le relais, l'ancien pod peut être arrêté ;
+# - sinon (active, disabled, ou cont-init pas encore arrivé là) → /health du
+#   gateway, comme l'ancienne sonde httpGet.
+state=$(cat /run/hermes-handoff 2>/dev/null || true)
+if [ "$state" = standby ]; then
+    exit 0
+fi
+exec curl -fsS --max-time 8 -o /dev/null "http://127.0.0.1:${API_SERVER_PORT:-8642}/health"

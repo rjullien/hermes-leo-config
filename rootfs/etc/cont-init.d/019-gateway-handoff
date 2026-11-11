@@ -1,0 +1,83 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Passage de relais du gateway entre deux pods (RollingUpdate K8s).
+#
+# Le gateway Hermes prend un flock exclusif sur $HERMES_HOME/gateway.lock
+# (gateway/status.py, v0.22.7) et SORT si un autre gateway le tient
+# (gateway/run_bootstrap.py `_start_gateway_claim_pid_file`). Avec un PVC
+# partagé, un nouveau pod lancé pendant que l'ancien tourne boucle donc sous
+# s6 (puis recule jusqu'à 300 s via le disjoncteur gateway-starts.log) et ne
+# devient jamais Ready : le RollingUpdate se bloque.
+#
+# Ce script s'exécute après 01-hermes-setup (migrations, skills, deps) et
+# AVANT 02-reconcile-profiles (qui démarre le gateway). Il :
+#   1. écrit /run/hermes-handoff=standby → hermes-probe répond OK, le pod
+#      devient Ready, Kubernetes envoie SIGTERM à l'ancien pod ;
+#   2. attend (1 s entre deux essais) que gateway.lock soit libre ;
+#   3. écrit /run/hermes-handoff=active et rend la main → 02 démarre le
+#      gateway, qui obtient le verrou du premier coup (pas de tempête s6).
+#
+# Sans autre pod (Recreate, redémarrage de conteneur) le verrou est libre :
+# le script passe en quelques millisecondes.
+#
+# Variables :
+#   HERMES_HANDOFF_DISABLE=1   interrupteur de retour arrière : ne fait rien
+#                              (hermes-probe retombe alors sur /health seul).
+#   HERMES_HANDOFF_MAX_WAIT    plafond d'attente en secondes (défaut 600).
+#                              Au-delà on continue quand même (log ERROR) :
+#                              le gateway retombe sur le comportement amont.
+# s6-overlay ≥ 3.1.6.2 n'impose pas de délai aux cont-init
+# (S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0, fixé explicitement dans le Dockerfile).
+
+STATE=/run/hermes-handoff
+LOCK="${HERMES_HOME:-/opt/data}/gateway.lock"
+MAX_WAIT="${HERMES_HANDOFF_MAX_WAIT:-600}"
+
+log() { echo "[handoff] $*"; }
+
+case "${HERMES_HANDOFF_DISABLE:-0}" in
+    1|true|yes)
+        echo disabled > "$STATE"
+        log "désactivé (HERMES_HANDOFF_DISABLE=${HERMES_HANDOFF_DISABLE})"
+        exit 0
+        ;;
+esac
+
+case "$MAX_WAIT" in
+    ''|*[!0-9]*) log "HERMES_HANDOFF_MAX_WAIT invalide ($MAX_WAIT), 600 s utilisés"; MAX_WAIT=600 ;;
+esac
+
+# Sonde non bloquante, exécutée en hermes : si le fichier n'existait pas, il
+# serait créé avec le bon propriétaire (jamais root:root, que le gateway ne
+# pourrait plus ouvrir en écriture). Le verrou est relâché aussitôt.
+lock_free() {
+    [ -e "$LOCK" ] || return 0
+    # Chemins absolus : K8s écrase PATH (pas de /command dedans).
+    /command/s6-setuidgid hermes /usr/bin/flock -n "$LOCK" true 2>/dev/null
+}
+
+echo standby > "$STATE"
+chmod 0644 "$STATE"
+
+if lock_free; then
+    log "gateway.lock libre, démarrage immédiat"
+else
+    log "gateway.lock tenu par un autre pod : standby (Ready) jusqu'à sa libération, plafond ${MAX_WAIT}s"
+    waited=0
+    while ! lock_free; do
+        if [ "$waited" -ge "$MAX_WAIT" ]; then
+            log "ERROR: gateway.lock toujours tenu après ${MAX_WAIT}s, on continue sans relais"
+            echo active > "$STATE"
+            exit 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [ $((waited % 30)) -eq 0 ]; then
+            log "toujours en attente de gateway.lock (${waited}s)"
+        fi
+    done
+    log "relais obtenu après ${waited}s"
+fi
+
+echo active > "$STATE"
+exit 0
