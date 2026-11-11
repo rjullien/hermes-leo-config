@@ -21,7 +21,7 @@
 # ⚠️ ARCHITECTURE (P-03) : image linux/amd64 UNIQUEMENT. Les URLs ci-dessous
 # ciblent x86_64/amd64 et build.yml ne construit que linux/amd64. Pour arm64,
 # paramétrer via TARGETARCH et valider les 5 binaires (voir README §Architecture).
-FROM nousresearch/hermes-agent:v0.22.5@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
+FROM nousresearch/hermes-agent:v0.22.7@sha256:e6d81ae52ebf6a43efa529701405509f20054ba818f179ddd748bed4f8af584c
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
