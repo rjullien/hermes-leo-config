@@ -83,7 +83,7 @@ jobs:
           no-cache: true
           platforms: linux/amd64
 
-      - name: Smoke test — les 7 outils (+ matplotlib) répondent
+      - name: Smoke test — les outils (+ matplotlib + entire-agent-hermes) répondent
         run: |
           set -euo pipefail
           img="${{ env.LOCAL_TAG }}"
@@ -96,6 +96,7 @@ jobs:
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" plugin list
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" graph --help
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
+          docker run --rm --entrypoint entire-agent-hermes "$img" info
           docker run --rm --entrypoint go      "$img" version
           docker run --rm --entrypoint pandoc  "$img" --version
           docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib venv', matplotlib.__version__)"
@@ -294,6 +295,16 @@ jobs:
           entire --version 2>&1 | head -n 1
           go version 2>&1 | head -n 1
           /usr/local/bin/python3 -c 'import pip._vendor.certifi as c; print("vendor-certifi", c.__version__)' 2>&1 | head -n 1
+          # entire-agent-hermes : preview sans release amont. Absent des images
+          # antérieures → « absent » vs sha256 du binaire force une publication
+          # si latest n'a pas encore l'adaptateur (ex. build de release raté).
+          echo "### entire-agent-hermes"
+          if [ -x /usr/local/bin/entire-agent-hermes ]; then
+            sha256sum /usr/local/bin/entire-agent-hermes
+            entire-agent-hermes info 2>&1 | head -n 1
+          else
+            echo "entire-agent-hermes absent"
+          fi
           SCRIPT
           # Retirer l'indentation YAML du heredoc.
           sed -i 's/^          //' /tmp/extract-manifest.sh

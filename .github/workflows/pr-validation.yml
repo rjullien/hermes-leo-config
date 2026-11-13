@@ -2,8 +2,9 @@ name: PR Validation (build + smoke + scan)
 
 # F-01 — Valide l'image sur chaque pull request SANS la pousser.
 # Objectif : aucune mise à jour de dépendance ne peut atteindre `main` sans
-# que le Dockerfile soit réellement construit, les 7 outils (+ matplotlib) testés, et l'image
-# scannée. Ce workflow ne publie rien (push: false).
+# que le Dockerfile soit réellement construit, les outils (+ matplotlib +
+# entire-agent-hermes) testés, et l'image scannée. Ce workflow ne publie rien
+# (push: false).
 
 on:
   pull_request:
@@ -101,7 +102,7 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Smoke test — les 7 outils (+ matplotlib) répondent
+      - name: Smoke test — les outils (+ matplotlib + entire-agent-hermes) répondent
         run: |
           set -euo pipefail
           img=hermes-leo-custom:pr-validation
@@ -114,6 +115,9 @@ jobs:
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" plugin list
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" graph --help
           docker run --rm --user 1000:1000 --entrypoint entire  "$img" brain --help
+          # Adaptateur preview : pas de --version ; `info` (protocole Entire) suffit.
+          # HERMES_HOME est déjà dans l'image (/opt/data) — pas requis pour `info`.
+          docker run --rm --entrypoint entire-agent-hermes "$img" info
           docker run --rm --entrypoint go      "$img" version
           docker run --rm --entrypoint pandoc  "$img" --version
           docker run --rm --user 1000:1000 --entrypoint python3 "$img" -c "import matplotlib; print('matplotlib venv', matplotlib.__version__)"

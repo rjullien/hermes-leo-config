@@ -9,11 +9,14 @@ outils agents absents de la base.
 | Outil | Version | Usage |
 |---|---|---|
 | **gws** (Google Workspace CLI) | 0.22.5 | Gmail, Tasks, Calendar, Drive — Gmail automatisé (remplace himalaya) |
-| **gh** (GitHub CLI) | 2.99.0 | Issues, PRs, releases |
-| **kubectl** | 1.37.0 | Debug cluster (lecture pods/logs, RBAC read-only) |
+| **gh** (GitHub CLI) | 2.103.3 | Issues, PRs, releases |
+| **kubectl** | 1.37.2 | Debug cluster (lecture pods/logs, RBAC read-only) |
 | **adb** (platform-tools) | 37.0.1 | Android Debug Bridge — tablettes murales, caméras, dépannage Android |
-| **entire** (CLI + plugins graph/brain) | 0.12.2 | Carte de repo précomputée + mémoire d'agents — 100 % local, aucune clé API |
-| **go** (toolchain) | 1.27.0 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
+| **entire** (CLI + plugins graph/brain) | 0.13.1 | Carte de repo précomputée + mémoire d'agents — 100 % local, aucune clé API |
+| **entire-agent-hermes** | commit pin `EXTERNAL_AGENTS_REF` | Adaptateur Entire ↔ Hermes (preview, build multi-stage Go, pas de release amont) |
+| **go** (toolchain) | 1.27.3 | Compiler/tester les repos Go depuis le pod (opencode-usage-tracker…) |
+| **pandoc** | 3.13 | Conversion Markdown → docx/epub… |
+| **matplotlib** (pip) | 3.11.2 | Graphiques Python (outils + venv hermes) |
 
 > Les versions ci-dessus reflètent les `ARG *_VERSION` du `Dockerfile` (source
 > de vérité). En cas de doute, `Dockerfile` fait foi.
@@ -204,7 +207,7 @@ build, le smoke test et la porte Trivy CRITICAL.
 **L'automerge attend le check CI (S-05)** : `ignoreTests: true` et
 `requiredStatusChecks: []` ont été retirés maintenant que `pr-validation` existe
 (F-01). Renovate ne fusionne donc plus qu'après un build vert (image construite,
-7 outils + matplotlib testés, scan sans nouvelle CRITICAL corrigible).
+outils + matplotlib + entire-agent-hermes testés, scan sans nouvelle CRITICAL corrigible).
 
 ⚠️ **Ceci n'ajoute PAS de délai supplémentaire.** `internalChecksFilter` vaut
 `strict` par défaut : Renovate n'ouvre pas la PR tant que la release est
