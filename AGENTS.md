@@ -6,9 +6,10 @@ par les règles suivantes. À LIRE AVANT de modifier quoi que ce soit.
 ## 🎯 Le but du repo
 
 Une couche fine sur l'image officielle `nousresearch/hermes-agent` :
-**seulement des binaires système** (gws, gh, kubectl, adb, entire, go). Pas de
-scripts, pas de venvs, pas de skills — ceux-ci vivent sur le PVC `/opt/data` et
-les ConfigMaps (vps-infra), pas dans l'image.
+**seulement des binaires système** (gws, gh, kubectl, adb, entire,
+entire-agent-hermes, go, pandoc). Pas de scripts, pas de venvs, pas de skills —
+ceux-ci vivent sur le PVC `/opt/data` et les ConfigMaps (vps-infra), pas dans
+l'image.
 
 Seule exception : les deux scripts de passage de relais du gateway
 (`rootfs/etc/cont-init.d/019-gateway-handoff`, `rootfs/usr/local/bin/hermes-probe`,
@@ -288,6 +289,20 @@ l'asset de la release **et refuse toute release sans `checksums.txt`**
 Leur version est figée par `--pin v<ARG>` + Renovate (`entireio/entire-graph`,
 `entireio/entire-brain`), ce qui garde des builds reproductibles.
 
+⚠️ **entire-agent-hermes : pas d'ARG `_SHA256`, c'est voulu.** Adaptateur
+preview (`entireio/external-agents`, dossier `agents/entire-agent-hermes`) —
+**aucune release prébuild, aucun checksums amont**. Il est compilé dans un
+stage multi-stage `FROM golang:<go.mod>@sha256:…` (commande = `mise.toml`
+`[tasks.build]` : `go build -o entire-agent-hermes ./cmd/entire-agent-hermes`),
+puis seul le binaire est copié dans `/usr/local/bin/entire-agent-hermes`.
+**L'ancre d'intégrité est uniquement le commit pin**
+`ARG EXTERNAL_AGENTS_REF=<sha>` (datasource Renovate `git-refs`, tip de
+`main`, customManager dédié — hors table `TOOLS` / sync-download-checksums).
+Pas d'automerge sur ce pin (preview + tip de main). Ne pas installer `mise`
+dans l'image finale, ni lancer `entire enable` au build (étape runtime
+par-repo). `HERMES_HOME` est réaffirmé à `/opt/data` (égal à l'ENV de la base
+et au montage PVC Léo).
+
 ⚠️ **go.dev ne publie PAS de `.sha256` par archive.**
 `https://go.dev/dl/go<V>.linux-amd64.tar.gz.sha256` renvoie une **page HTML**,
 pas un hash (vérifié). Toute implémentation qui suppose cette URL écrit du HTML
@@ -328,9 +343,11 @@ Updater déploie automatiquement, risque accepté le 28/09/2026). Si ce compromi
 docker run --rm --entrypoint gws   ghcr.io/rjullien/hermes-leo-config/hermes-leo-custom:latest --version
 docker run --rm --entrypoint gh    ghcr.io/rjullien/hermes-leo-config/hermes-leo-custom:latest --version
 docker run --rm --entrypoint kubectl ghcr.io/rjullien/hermes-leo-config/hermes-leo-custom:latest version --client
+docker run --rm --entrypoint entire-agent-hermes ghcr.io/rjullien/hermes-leo-config/hermes-leo-custom:latest info
 
 # Ou dans le pod après déploiement :
 kubectl exec -n openclaw deploy/hermes-leo -- gws --version
+kubectl exec -n openclaw deploy/hermes-leo -- entire-agent-hermes info
 ```
 
 ## 📝 Conventions

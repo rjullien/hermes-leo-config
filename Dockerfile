@@ -2,17 +2,42 @@
 # Pattern: rjullien/nullclaw-lea-config (image custom agent + Renovate)
 #
 # Outils ajoutés (tous absents de l'image officielle hermes-agent) :
-#   - gws      : Google Workspace CLI (Gmail, Tasks, Calendar, Drive) — remplace gws-axi 0.6.1 ET himalaya
-#   - gh       : GitHub CLI (issues, PRs, releases)
-#   - kubectl  : debug cluster (lecture pods/logs)
-#   - adb      : Android Debug Bridge (tablettes murales, caméras, dépannage — depuis platform-tools Google)
-#   - entire   : CLI Entire + plugins graph/brain (carte de repo précomputée, mémoire d'agents)
-#   - go       : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker, etc.)
+#   - gws                 : Google Workspace CLI (Gmail, Tasks, Calendar, Drive) — remplace gws-axi 0.6.1 ET himalaya
+#   - gh                  : GitHub CLI (issues, PRs, releases)
+#   - kubectl             : debug cluster (lecture pods/logs)
+#   - adb                 : Android Debug Bridge (tablettes murales, caméras, dépannage — depuis platform-tools Google)
+#   - entire              : CLI Entire + plugins graph/brain (carte de repo précomputée, mémoire d'agents)
+#   - entire-agent-hermes : adaptateur Entire ↔ Hermes (preview, build multi-stage depuis source)
+#   - go                  : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker, etc.)
 #
 # Base: image officielle hermes-agent (debian:13.4, glibc → binaires gnu, PAS musl)
 #
 # ⚠️ SÉCURITÉ : repo PUBLIC + image ghcr.io publique — AUCUN secret/token dans ce Dockerfile.
 # Les credentials (gws OAuth, etc.) vont dans Infisical ou sur le PVC, jamais gravés ici.
+
+# --- Builder : entire-agent-hermes (preview, pas de release / checksums amont) ---
+# Image officielle golang épinglée par digest ; tag = go.mod de l'adaptateur
+# (agents/entire-agent-hermes/go.mod → go 1.26.0). pinDigests (renovate.json)
+# maintient le digest. On ne copie QUE le binaire dans l'image finale — pas de
+# mise, pas de toolchain de build.
+FROM golang:1.26.0@sha256:fb612b7831d53a89cbc0aaa7855b69ad7b0caf603715860cf538df854d047b84 AS entire-agent-hermes-builder
+
+# Commit pin de entireio/external-agents : seule ancre d'intégrité (pas d'asset
+# de release, pas de checksums.txt). Renovate le suit via git-refs (digest du
+# tip de main) — customManagers dédié dans renovate.json (ce n'est PAS un
+# ARG *_VERSION=, donc hors du manager des binaires curl).
+# renovate: datasource=git-refs depName=entireio/external-agents packageName=https://github.com/entireio/external-agents
+ARG EXTERNAL_AGENTS_REF=23c64f2861ddbfd2670cffafeb45f86bad6ebc2b
+
+WORKDIR /src
+RUN git clone --filter=blob:none https://github.com/entireio/external-agents.git . \
+    && git checkout --detach "${EXTERNAL_AGENTS_REF}"
+
+# Build command = mise.toml [tasks.build] de l'adaptateur (vérifié amont) :
+#   go build -o entire-agent-hermes ./cmd/entire-agent-hermes
+WORKDIR /src/agents/entire-agent-hermes
+RUN mkdir -p /out \
+    && CGO_ENABLED=0 go build -o /out/entire-agent-hermes ./cmd/entire-agent-hermes
 
 # Base épinglée par digest (S-02) : reconstruire ce commit utilise toujours la
 # même image, même si le tag v2026.8.16 est déplacé. Renovate maintient le
@@ -25,8 +50,9 @@ FROM nousresearch/hermes-agent:v0.22.7@sha256:e6d81ae52ebf6a43efa529701405509f20
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
-# (gws → gh → kubectl → adb → entire → go). Ainsi, changer la version d'un outil
-# n'invalide QUE sa couche et les suivantes, pas les précédentes.
+# (gws → gh → kubectl → adb → entire → entire-agent-hermes → go). Ainsi, changer
+# la version d'un outil n'invalide QUE sa couche et les suivantes, pas les
+# précédentes.
 # Chaque outil a un SHA-256 attendu (S-01) : téléchargement vérifié AVANT
 # extraction. Renovate maintient version + digest (voir renovate.json).
 USER root
@@ -191,6 +217,23 @@ RUN curl -fsSL -o /tmp/entire.tar.gz https://github.com/entireio/cli/releases/do
     && entire plugin install graph --yes --pin v${ENTIRE_GRAPH_VERSION} \
     && entire plugin install brain --yes --pin v${ENTIRE_BRAIN_VERSION} \
     && chmod -R a+rX /usr/local/share/entire
+
+# --- entire-agent-hermes : adaptateur Entire ↔ Hermes (preview) ---
+# Copie UNIQUEMENT le binaire produit par le stage builder (pas de mise dans
+# l'image finale). Pas de `entire enable` ici : c'est une étape runtime
+# par-repo (écrit dans le profil HERMES_HOME + .entire/settings.json).
+# Pas d'ARG _SHA256 : aucun artefact curl — ancre = commit EXTERNAL_AGENTS_REF
+# (voir AGENTS.md, même classe documentaire que adb/pandoc sans checksum amont).
+#
+# HERMES_HOME : la base nousresearch/hermes-agent épingle déjà
+# ENV HERMES_HOME=/opt/data (home du user hermes + VOLUME). L'adaptateur refuse
+# les profils implicites ~/.hermes ; on réaffirme le MÊME chemin (égal au path
+# effectif actuel / PVC Léo). Ne PAS déplacer le profil. vps-infra n'a pas à
+# ajouter HERMES_HOME : l'ENV image survit au Deployment (qui monte déjà le PVC
+# à /opt/data et n'écrase pas cette variable).
+COPY --from=entire-agent-hermes-builder /out/entire-agent-hermes /usr/local/bin/entire-agent-hermes
+ENV HERMES_HOME=/opt/data
+RUN test -x /usr/local/bin/entire-agent-hermes
 
 # --- go : toolchain Go (compiler/tester les repos Go : opencode-usage-tracker...) ---
 # Version épinglée + Renovate (datasource golang-version). ~300 Mo — nécessaire

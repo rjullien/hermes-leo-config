@@ -1,13 +1,14 @@
 name: Auto Release
 # Crée une release calver quand un bump Renovate merge change une version d'outil
-# (ARG *_VERSION=) OU l'image de base (ligne FROM) dans le Dockerfile. Un bump de
-# la seule base hermes-agent crée donc une release + un build, comme un bump
-# d'outil. Les changements de commentaires ou checksums seuls ne déclenchent ni
-# release ni build. Le build est ensuite lancé DANS LE
-# MÊME RUN via le job `build` (workflow réutilisable build-image.yml) -> pousse
-# les tags vYYYY.M.D / vYYYY.M / latest / sha-<commit>. On n'attend PAS l'event
-# `release: published` : il est supprimé par la protection anti-récursion de
-# GitHub quand la release est créée depuis un workflow (voir le job `build`).
+# (ARG *_VERSION=), le commit pin EXTERNAL_AGENTS_REF, OU une ligne FROM
+# (base hermes-agent / builder golang) dans le Dockerfile. Un bump de la seule
+# base hermes-agent crée donc une release + un build, comme un bump d'outil. Les
+# changements de commentaires ou checksums seuls ne déclenchent ni release ni
+# build. Le build est ensuite lancé DANS LE MÊME RUN via le job `build`
+# (workflow réutilisable build-image.yml) -> pousse les tags vYYYY.M.D /
+# vYYYY.M / latest / sha-<commit>. On n'attend PAS l'event `release: published` :
+# il est supprimé par la protection anti-récursion de GitHub quand la release
+# est créée depuis un workflow (voir le job `build`).
 
 on:
   push:
@@ -56,10 +57,11 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Compare ARG *_VERSION= lines AND the FROM line (image de base) —
-          # comments and checksums excluded. Un bump de la seule base
-          # hermes-agent doit créer une release comme un bump d'outil.
-          FILTER='^(ARG [A-Z_]+_VERSION=|FROM )'
+          # Compare ARG *_VERSION= lines, EXTERNAL_AGENTS_REF (commit pin de
+          # entire-agent-hermes), AND every FROM line (base hermes-agent + stage
+          # builder golang) — comments and checksums excluded. Un bump de la
+          # seule base hermes-agent doit créer une release comme un bump d'outil.
+          FILTER='^(ARG [A-Z_]+_VERSION=|ARG EXTERNAL_AGENTS_REF=|FROM )'
           CURRENT_VERSIONS=$(grep -E "$FILTER" Dockerfile | sort)
           LAST_VERSIONS=$(git show "$LAST_TAG":Dockerfile 2>/dev/null | grep -E "$FILTER" | sort)
           if [ "$CURRENT_VERSIONS" = "$LAST_VERSIONS" ]; then
@@ -77,7 +79,7 @@ jobs:
             echo "NOTES=Première release automatique." >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Extrait les ARG *_VERSION= changés avec versions avant (old) -> après (new)
+          # Extrait les ARG *_VERSION= / EXTERNAL_AGENTS_REF changés (old -> new)
           NOTES=""
           while read -r ARG_NAME; do
             [ -z "$ARG_NAME" ] && continue
@@ -85,12 +87,14 @@ jobs:
             NEW=$(grep -E "^ARG $ARG_NAME=" Dockerfile | head -1 | cut -d= -f2-)
             OLD=${OLD:-?}
             NOTES+="- \`$ARG_NAME\` : \`$OLD\` -> \`$NEW\`"$'\n'
-          done < <(git diff "$LAST_TAG" -- Dockerfile | grep -E '^[+-]ARG [A-Z_]+_VERSION=' | sed -E 's/^[+-]ARG ([A-Z_]+)=.*/\1/' | sort -u)
-          # Bump de l'image de base (ligne FROM) : l'afficher aussi.
-          OLD_FROM=$(git show "$LAST_TAG":Dockerfile 2>/dev/null | grep -E '^FROM ' | head -1)
-          NEW_FROM=$(grep -E '^FROM ' Dockerfile | head -1)
-          if [ -n "$OLD_FROM" ] && [ "$OLD_FROM" != "$NEW_FROM" ]; then
-            NOTES+="- Image de base : \`${OLD_FROM#FROM }\` -> \`${NEW_FROM#FROM }\`"$'\n'
+          done < <(git diff "$LAST_TAG" -- Dockerfile | grep -E '^[+-]ARG ([A-Z_]+_VERSION|EXTERNAL_AGENTS_REF)=' | sed -E 's/^[+-]ARG ([A-Z_]+)=.*/\1/' | sort -u)
+          # Bumps de lignes FROM (base hermes-agent et/ou builder golang) :
+          # comparer l'ensemble trié, pas seulement la première ligne (le
+          # multi-stage met golang en tête).
+          OLD_FROMS=$(git show "$LAST_TAG":Dockerfile 2>/dev/null | grep -E '^FROM ' | sort || true)
+          NEW_FROMS=$(grep -E '^FROM ' Dockerfile | sort)
+          if [ -n "$OLD_FROMS" ] && [ "$OLD_FROMS" != "$NEW_FROMS" ]; then
+            NOTES+="- Lignes FROM (base / builder) mises à jour"$'\n'
           fi
           if [ -z "$NOTES" ]; then
             NOTES="Mise à jour du Dockerfile (aucune version d'outil modifiée)."

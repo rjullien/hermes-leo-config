@@ -13,13 +13,23 @@
   },
   "customManagers": [
     {
-      "description": "Lit les 5 couples `# renovate:` + `ARG <OUTIL>_VERSION=` du Dockerfile. NE CAPTURE PAS le SHA-256 : aucune des datasources utilisées (golang-version, github-releases, github-tags, custom.devin-cli) ne sait résoudre le SHA-256 d'une archive comme un digest. Le capturer cassait 3 updates à la fois (branche renovate/kubernetes-kubernetes-digest en erreur en essayant d'écrire un SHA de commit git kubernetes/kubernetes dans KUBECTL_SHA256, « Could not determine new digest for update » pour googleworkspace/cli et cli/cli). Le SHA-256 est désormais maintenu par postUpgradeTasks (scripts/sync-download-checksums.mjs). Le gel de devin-cli (« Failed to look up custom package devin-cli: no-result ») avait une AUTRE cause, orthogonale : la ligne `# renovate:` disait `datasource=custom` au lieu de `datasource=custom.devin-cli`.",
+      "description": "Lit les couples `# renovate:` + `ARG <OUTIL>_VERSION=` du Dockerfile. NE CAPTURE PAS le SHA-256 : aucune des datasources utilisées (golang-version, github-releases, github-tags, custom.android-platform-tools) ne sait résoudre le SHA-256 d'une archive comme un digest. Le capturer cassait 3 updates à la fois (branche renovate/kubernetes-kubernetes-digest en erreur en essayant d'écrire un SHA de commit git kubernetes/kubernetes dans KUBECTL_SHA256, « Could not determine new digest for update » pour googleworkspace/cli et cli/cli). Le SHA-256 est désormais maintenu par postUpgradeTasks (scripts/sync-download-checksums.mjs). Le gel de devin-cli (« Failed to look up custom package devin-cli: no-result ») avait une AUTRE cause, orthogonale : la ligne `# renovate:` disait `datasource=custom` au lieu de `datasource=custom.devin-cli`.",
       "customType": "regex",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG \\w+_VERSION=(?<currentValue>[^\\s]+)"
       ],
       "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "description": "Commit pin EXTERNAL_AGENTS_REF (entire-agent-hermes preview). git-refs : currentValue = branche suivie (main), currentDigest = SHA du tip. PAS un ARG *_VERSION= (hors du manager des binaires curl, pas de postUpgradeTasks / _SHA256 — aucune release amont).",
+      "customType": "regex",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=git-refs depName=(?<depName>[^\\s]+) packageName=(?<packageName>[^\\s]+)\\nARG EXTERNAL_AGENTS_REF=(?<currentDigest>[0-9a-f]{40})"
+      ],
+      "currentValueTemplate": "main",
+      "datasourceTemplate": "git-refs"
     }
   ],
   "packageRules": [
@@ -33,7 +43,22 @@
       "automergeType": "pr"
     },
     {
-      "description": "Binaires outils (gws, gh, kubectl, adb, entire, go, pandoc) et paquets pip épinglés (matplotlib) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici).",
+      "description": "Image golang du stage builder entire-agent-hermes : pinDigests + délai 3j, AUTOMERGE. Hors de la règle des binaires curl (pas de _SHA256 / postUpgradeTasks).",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "minimumReleaseAge": "3 days",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "entireio/external-agents (commit pin entire-agent-hermes, preview) : PAS d'automerge — tip de main, pas de release/checksums, revue humaine avant de rebuild l'image. Le customManager git-refs ouvre la PR ; pas de postUpgradeTasks.",
+      "matchDatasources": ["git-refs"],
+      "matchPackageNames": ["entireio/external-agents"],
+      "automerge": false
+    },
+    {
+      "description": "Binaires outils (gws, gh, kubectl, adb, entire, go, pandoc) et paquets pip épinglés (matplotlib) : releases officielles — délai 3j, AUTOMERGE. postUpgradeTasks resynchronise `ARG <OUTIL>_SHA256` avec la version bumpée, dans le commit Renovate lui-même (donc relisible dans le diff de la PR). Sans ça, `sha256sum -c` rejette la nouvelle archive et le build de la PR échoue (symptôme vécu : PR #26 golang 1.27.1 bloquée). Exige RENOVATE_ALLOWED_COMMANDS côté renovate.yml (config admin, impossible ici). matchDatasources EXCLUT docker : le stage builder `FROM golang:` partage depName=golang avec la toolchain go.dev, et ne doit PAS déclencher sync-download-checksums (règle docker golang séparée).",
+      "matchDatasources": ["github-releases", "github-tags", "golang-version", "pypi", "custom.android-platform-tools"],
       "matchPackageNames": ["googleworkspace/cli", "cli/cli", "kubernetes/kubernetes", "golang", "android-platform-tools", "entireio/cli", "entireio/entire-graph", "entireio/entire-brain", "jgm/pandoc", "matplotlib"],
       "minimumReleaseAge": "3 days",
       "automerge": true,
