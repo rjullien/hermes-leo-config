@@ -197,8 +197,8 @@ RUN curl -fsSL -o /tmp/entire.tar.gz https://github.com/entireio/cli/releases/do
 # pour `go build/test` depuis le pod (binaire nu inutilisable sans GOROOT).
 # Placé en dernier (couche la plus lourde) pour préserver le cache des autres.
 # renovate: datasource=golang-version depName=golang
-ARG GO_VERSION=1.27.3
-ARG GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+ARG GO_VERSION=1.27.4
+ARG GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
     && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
     && tar xz -C /usr/local -f /tmp/go.tar.gz \
