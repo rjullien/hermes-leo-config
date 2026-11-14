@@ -46,7 +46,7 @@ RUN mkdir -p /out \
 # ⚠️ ARCHITECTURE (P-03) : image linux/amd64 UNIQUEMENT. Les URLs ci-dessous
 # ciblent x86_64/amd64 et build.yml ne construit que linux/amd64. Pour arm64,
 # paramétrer via TARGETARCH et valider les 5 binaires (voir README §Architecture).
-FROM nousresearch/hermes-agent:v0.22.7@sha256:e6d81ae52ebf6a43efa529701405509f20054ba818f179ddd748bed4f8af584c
+FROM nousresearch/hermes-agent:v0.23.0@sha256:adb7890916de63245523492be8f68f9d2095fecbec4e2a6dab7960381f0fc002
 
 # Ordre des couches (P-02) : chaque couple `# renovate` + ARG version + ARG
 # SHA256 est placé JUSTE avant le RUN qui l'utilise, du plus léger au plus lourd
