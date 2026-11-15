@@ -256,8 +256,8 @@ RUN curl -fsSL -o /tmp/go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-amd64.t
 # éditée à la main, `--write` la recalcule. S-01 = trivial (le pin est le seul
 # ancre), à documenter comme tel dans AGENTS.md.
 # renovate: datasource=github-releases depName=jgm/pandoc
-ARG PANDOC_VERSION=3.13
-ARG PANDOC_SHA256=38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389
+ARG PANDOC_VERSION=3.14
+ARG PANDOC_SHA256=c5f4720cdefb3f7bdc5d07202ef579feef0d1370773c873804dd8fdaa8c4f1b8
 RUN curl -fsSL -o /tmp/pandoc.tar.gz https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-amd64.tar.gz \
     && echo "${PANDOC_SHA256}  /tmp/pandoc.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/pandoc.tar.gz -C /tmp \
