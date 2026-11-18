@@ -201,8 +201,8 @@ RUN curl -fsSL -o /tmp/platform-tools.zip https://dl.google.com/android/reposito
 # outils téléchargés en curl direct ci-dessus. --pin = versions figées (builds
 # reproductibles), bumpées par Renovate. Prérequis : git ≥ 2.36 (présent).
 # renovate: datasource=github-releases depName=entireio/cli
-ARG ENTIRE_CLI_VERSION=0.13.3
-ARG ENTIRE_CLI_SHA256=35cfabcc561e8da4eeed9ee3d182795bc7e332da72eefbf1849d3d9de0935710
+ARG ENTIRE_CLI_VERSION=0.13.4
+ARG ENTIRE_CLI_SHA256=c58879f9000764714b1e9d9c6803cb613de1d3e7e61f75563815618918f2128b
 # renovate: datasource=github-releases depName=entireio/entire-graph
 ARG ENTIRE_GRAPH_VERSION=0.6.0
 # renovate: datasource=github-releases depName=entireio/entire-brain
