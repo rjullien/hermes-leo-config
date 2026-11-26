@@ -27,7 +27,7 @@ FROM golang:1.26.0@sha256:fb612b7831d53a89cbc0aaa7855b69ad7b0caf603715860cf538df
 # tip de main) — customManagers dédié dans renovate.json (ce n'est PAS un
 # ARG *_VERSION=, donc hors du manager des binaires curl).
 # renovate: datasource=git-refs depName=entireio/external-agents packageName=https://github.com/entireio/external-agents
-ARG EXTERNAL_AGENTS_REF=23c64f2861ddbfd2670cffafeb45f86bad6ebc2b
+ARG EXTERNAL_AGENTS_REF=709c2a4e1801c72b003d881600d177b57cb53b7d
 
 WORKDIR /src
 RUN git clone --filter=blob:none https://github.com/entireio/external-agents.git . \
